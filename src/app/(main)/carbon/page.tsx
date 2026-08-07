@@ -13,6 +13,8 @@ import {
   computeCiiTrend,
   computeCiiSimulator,
   computeAnchorScenario,
+  computeFunFacts,
+  computeFleetRanking,
 } from '@/features/carbon/calc'
 import { CarbonStatCard } from '@/features/carbon/components/CarbonStatCard'
 import { CiiGauge } from '@/features/carbon/components/CiiGauge'
@@ -20,6 +22,8 @@ import { CiiTrendChart } from '@/features/carbon/components/CiiTrendChart'
 import { CiiSimulator } from '@/features/carbon/components/CiiSimulator'
 import { AnchorCarbonChart } from '@/features/carbon/components/AnchorCarbonChart'
 import { ComparisonTable } from '@/features/carbon/components/ComparisonTable'
+import { FunFactsCard } from '@/features/carbon/components/FunFactsCard'
+import { EcoRankingCard } from '@/features/carbon/components/EcoRankingCard'
 
 function portShortName(label: string): string {
   return label.split(' ')[0]
@@ -49,8 +53,24 @@ export default function CarbonPage() {
     [emissions, comparison, selectedVoyage],
   )
   const anchorScenario = useMemo(() => (emissions ? computeAnchorScenario(emissions.totalCo2Ton) : null), [emissions])
+  const funFacts = useMemo(() => (scope3 ? computeFunFacts(scope3.scope3SavedTon) : null), [scope3])
+  const fleetRanking = useMemo(
+    () => (selectedVessel && scope3 ? computeFleetRanking(selectedVessel, scope3, MOCK_VESSELS) : null),
+    [selectedVessel, scope3],
+  )
 
-  if (!selectedVoyage || !selectedVessel || !emissions || !comparison || !scope3 || !ciiTrendScores || !ciiSimulator || !anchorScenario) {
+  if (
+    !selectedVoyage ||
+    !selectedVessel ||
+    !emissions ||
+    !comparison ||
+    !scope3 ||
+    !ciiTrendScores ||
+    !ciiSimulator ||
+    !anchorScenario ||
+    !funFacts ||
+    !fleetRanking
+  ) {
     return (
       <div className="flex h-full flex-col">
         <PageHeader title={t.carbon.title} />
@@ -149,6 +169,11 @@ export default function CarbonPage() {
         <AnchorCarbonChart scenario={anchorScenario} />
 
         <ComparisonTable comparison={comparison} vesselName={selectedVessel.name} />
+
+        <div className="grid gap-5 lg:grid-cols-[580px_1fr]">
+          <FunFactsCard scope3SavedTon={scope3.scope3SavedTon} facts={funFacts} />
+          <EcoRankingCard ranking={fleetRanking.ranking} rank={fleetRanking.rank} />
+        </div>
       </div>
     </div>
   )
