@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { forwardRef, useImperativeHandle, useMemo, useState, type MouseEvent } from 'react'
 import {
   Ship,
   ChevronDown,
@@ -28,6 +28,7 @@ import {
   TrendingDown,
   Minus,
   MapPin,
+  Sparkles,
   type LucideIcon,
 } from 'lucide-react'
 import { useLanguage } from '@/features/i18n/LanguageContext'
@@ -41,12 +42,16 @@ import {
   portShortName,
   remainingRoute,
 } from '@/features/ai-report/lib/calc'
+import { categoryLabel, confidenceLabel, congestionLevelLabel, trendLabel } from '@/features/ai-report/lib/labels'
+import { exportReportPdf } from '@/features/ai-report/lib/pdf'
+import { EN_REPORT_CONTENT, EN_REGIONAL_ISSUE_CONTENT, enRiskTitle, enRiskDescription } from '@/features/ai-report/lib/en-content'
 import { StatCard } from '@/features/ai-report/components/StatCard'
 import { ProbabilityGauge } from '@/features/ai-report/components/ProbabilityGauge'
 import { VoyageProgressLine } from '@/features/ai-report/components/VoyageProgressLine'
 import { ReportWeatherStats } from '@/features/ai-report/components/ReportWeatherStats'
 import { getPortCongestion, congestionLevel, type CongestionTrend } from '@/mocks/port-congestion'
 import { MOCK_REGIONAL_ISSUES } from '@/mocks/map-overlays'
+import type { AiOverride, AiReanalyzeRequest, AiReanalyzeResponse } from '@/features/ai-report/types'
 import type { AisPosition, EcoSpeedReport, RiskItem, Vessel, Voyage } from '@/shared/types'
 
 const RISK_CATEGORY_ICON: Record<RiskItem['category'], LucideIcon> = {
@@ -74,19 +79,6 @@ const CONFIDENCE_TEXT: Record<'high' | 'medium' | 'low', string> = {
   low: 'text-red-600 dark:text-red-400',
 }
 
-function categoryLabel(t: ReturnType<typeof useLanguage>['t'], category: RiskItem['category']): string {
-  switch (category) {
-    case 'weather':
-      return t.aiReport.catWeather
-    case 'port':
-      return t.aiReport.catPort
-    case 'geopolitical':
-      return t.aiReport.catGeopolitical
-    case 'mechanical':
-      return t.aiReport.catMechanical
-  }
-}
-
 const CONGESTION_ANCHOR_COLOR: Record<'high' | 'medium' | 'low', string> = {
   high: 'text-red-500',
   medium: 'text-yellow-500',
@@ -103,14 +95,8 @@ function PortCongestionCard({ arrivalPort }: { arrivalPort: string }) {
   const { t } = useLanguage()
   const congestion = getPortCongestion(arrivalPort)
   const level = congestionLevel(congestion.congestionScore)
-  const levelLabel =
-    level === 'high' ? t.aiReport.congestionHigh : level === 'medium' ? t.aiReport.congestionMedium : t.aiReport.congestionLow
-  const trendLabel =
-    congestion.trend === 'rising'
-      ? t.aiReport.trendRising
-      : congestion.trend === 'falling'
-        ? t.aiReport.trendFalling
-        : t.aiReport.trendStable
+  const levelLabel = congestionLevelLabel(t, level)
+  const trend = trendLabel(t, congestion.trend)
   const TrendIcon = TREND_ICON[congestion.trend]
 
   return (
@@ -131,7 +117,7 @@ function PortCongestionCard({ arrivalPort }: { arrivalPort: string }) {
         </span>
         <span className="flex items-center gap-1">
           <TrendIcon className="h-3.5 w-3.5" />
-          {trendLabel}
+          {trend}
         </span>
       </div>
 
@@ -142,21 +128,38 @@ function PortCongestionCard({ arrivalPort }: { arrivalPort: string }) {
   )
 }
 
+export interface ReportCardHandle {
+  reanalyze: () => void
+}
+
 interface ReportCardProps {
   report: EcoSpeedReport
   voyage: Voyage
   vessel: Vessel
   position?: AisPosition
   defaultOpen?: boolean
+  onReanalyzeStart?: () => void
+  onReanalyzeEnd?: () => void
 }
 
-export function ReportCard({ report, voyage, vessel, position, defaultOpen = false }: ReportCardProps) {
-  const { t } = useLanguage()
+export const ReportCard = forwardRef<ReportCardHandle, ReportCardProps>(function ReportCard(
+  { report, voyage, vessel, position, defaultOpen = false, onReanalyzeStart, onReanalyzeEnd },
+  ref,
+) {
+  const { t, lang } = useLanguage()
   const [open, setOpen] = useState(defaultOpen)
 
   const deadlineTerm = voyage.rtaConfirmed ? 'RTA' : 'STA'
   const deadlineIso = voyage.rtaConfirmed ? voyage.rta : voyage.sta
   const currentSpeedKnots = position?.speedKnots ?? voyage.plannedSpeedKnots
+
+  // AI 재분석 override — mock 데이터는 바꾸지 않고 클라이언트 상태로만 baseline을 대체한다.
+  // 생성 당시 언어와 현재 UI 언어가 다르면 무시하고 baseline으로 자동 복귀한다(§7.5).
+  const [override, setOverride] = useState<AiOverride | null>(null)
+  const [aiError, setAiError] = useState<'no_api_key' | 'upstream_error' | null>(null)
+  const [analyzing, setAnalyzing] = useState(false)
+  const [weatherRefreshToken, setWeatherRefreshToken] = useState(0)
+  const effectiveOverride = override && override.lang === lang ? override : null
 
   const progress = useMemo(
     () => computeVoyageProgress(voyage.plannedRoute, voyage.distanceNm, position),
@@ -173,9 +176,13 @@ export function ReportCard({ report, voyage, vessel, position, defaultOpen = fal
         currentSpeedKnots,
         nowIso: report.generatedAt,
         deadlineIso,
+        aiRecommendedSpeedKnots: effectiveOverride?.recommendedSpeedKnots,
       }),
-    [vessel, voyage, report, progress.remaining, currentSpeedKnots, deadlineIso],
+    [vessel, voyage, report, progress.remaining, currentSpeedKnots, deadlineIso, effectiveOverride],
   )
+
+  const displayReasoning = effectiveOverride?.reasoning ?? report.reasoning
+  const displayRisks = effectiveOverride?.risks ?? report.risks
 
   const speedDiff = currentSpeedKnots - speedPlan.recommendedSpeedKnots
   const speedDiffLabel =
@@ -196,12 +203,156 @@ export function ReportCard({ report, voyage, vessel, position, defaultOpen = fal
     [voyage.plannedRoute, position],
   )
 
+  // AI override가 있으면(현재 언어와 일치할 때만) PDF도 override 텍스트를 그대로 쓴다
+  // (§9.1). override가 없을 때만 화면과 동일하게 mock 한국어 원문 또는 §9.3 영문
+  // 사전으로 대체한다 — jsPDF 기본 폰트가 한글을 렌더링하지 못하기 때문.
+  const pdfReasoning =
+    effectiveOverride?.reasoning ?? (lang === 'en' ? (EN_REPORT_CONTENT[report.id]?.reasoning ?? report.reasoning) : report.reasoning)
+  const pdfRisks = useMemo(
+    () =>
+      effectiveOverride?.risks ??
+      (lang === 'en'
+        ? report.risks.map((risk, i) => ({
+            ...risk,
+            title: enRiskTitle(report.id, i) || risk.title,
+            description: enRiskDescription(report.id, i) || risk.description,
+          }))
+        : report.risks),
+    [effectiveOverride, lang, report.id, report.risks],
+  )
+  const pdfRegionalIssues = useMemo(
+    () =>
+      lang === 'en'
+        ? nearbyRegionalIssues.map((issue) => ({
+            ...issue,
+            title: EN_REGIONAL_ISSUE_CONTENT[issue.id]?.title ?? issue.title,
+            description: EN_REGIONAL_ISSUE_CONTENT[issue.id]?.description ?? issue.description,
+          }))
+        : nearbyRegionalIssues,
+    [lang, nearbyRegionalIssues],
+  )
+
+  const [pdfGenerating, setPdfGenerating] = useState(false)
+
+  async function handleDownloadPdf(e: MouseEvent) {
+    e.stopPropagation()
+    if (pdfGenerating) return
+    setPdfGenerating(true)
+    try {
+      await exportReportPdf({
+        lang,
+        t,
+        report,
+        voyage,
+        vessel,
+        progress,
+        speedPlan,
+        currentSpeedKnots,
+        deadlineTerm,
+        congestion: getPortCongestion(voyage.arrivalPort),
+        reasoning: pdfReasoning,
+        risks: pdfRisks,
+        regionalIssues: pdfRegionalIssues,
+      })
+    } finally {
+      setPdfGenerating(false)
+    }
+  }
+
+  async function handleReanalyze() {
+    if (analyzing) return
+    setAnalyzing(true)
+    setAiError(null)
+    setWeatherRefreshToken((v) => v + 1)
+    onReanalyzeStart?.()
+
+    const speedRange = vessel.fuelCurve.map((f) => f.speedKnots)
+    const payload: AiReanalyzeRequest = {
+      lang,
+      vessel: { name: vessel.name, type: vessel.type, imo: vessel.imo },
+      route: {
+        departurePort: voyage.departurePort,
+        arrivalPort: voyage.arrivalPort,
+        cargoDescription: voyage.cargoDescription,
+      },
+      deadlineTerm,
+      deadlineAt: deadlineIso,
+      nowIso: report.generatedAt,
+      baselineEtaAt: report.etaIfRecommended,
+      progress: {
+        totalNm: voyage.distanceNm,
+        traveledNm: progress.traveled,
+        remainingNm: progress.remaining,
+        progressPercent: progress.percent,
+      },
+      currentPos,
+      arrivalPos,
+      currentSpeedKnots,
+      currentSpeedProbabilityPercent: speedPlan.currentSpeedProbability.percent,
+      marginHoursAtCurrentSpeed: speedPlan.currentSpeedProbability.marginHours,
+      planSpeedKnots: report.currentPlanSpeed,
+      baselineRecommendedSpeedKnots: report.recommendedSpeed,
+      speedRangeKnots: { min: Math.min(...speedRange), max: Math.max(...speedRange) },
+      fuelCurve: vessel.fuelCurve,
+      congestion: (() => {
+        const c = getPortCongestion(voyage.arrivalPort)
+        return {
+          level: congestionLevel(c.congestionScore),
+          score: c.congestionScore,
+          avgWaitHours: c.avgWaitHours,
+          berthsAvailable: c.berthsAvailable,
+          berthsTotal: c.berthsTotal,
+          trend: c.trend,
+        }
+      })(),
+      nearbyIssues: nearbyRegionalIssues.map((issue) => ({
+        title: issue.title,
+        description: issue.description,
+        severity: issue.severity,
+      })),
+    }
+
+    try {
+      const res = await fetch('/api/ai-report/reanalyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(60000),
+      })
+      const data: AiReanalyzeResponse = await res.json()
+      if (data.ok) {
+        setOverride({ reasoning: data.reasoning, risks: data.risks, recommendedSpeedKnots: data.recommendedSpeedKnots, lang })
+      } else {
+        setAiError(data.reason === 'no_api_key' ? 'no_api_key' : 'upstream_error')
+      }
+    } catch {
+      setAiError('upstream_error')
+    } finally {
+      setAnalyzing(false)
+      onReanalyzeEnd?.()
+    }
+  }
+
+  useImperativeHandle(ref, () => ({ reanalyze: handleReanalyze }))
+
   return (
     <div
       id={`ai-report-${report.id}`}
       className="rounded-xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900"
     >
-      <button onClick={() => setOpen((v) => !v)} className="flex w-full items-center gap-4 px-5 py-4 text-left">
+      <div
+        role="button"
+        tabIndex={0}
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault()
+            setOpen((v) => !v)
+          }
+        }}
+        className="flex w-full cursor-pointer items-center gap-4 px-5 py-4 text-left"
+      >
         <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-slate-100 dark:bg-slate-700">
           <Ship className="h-5 w-5 text-[#6366f1]" />
         </span>
@@ -236,28 +387,40 @@ export function ReportCard({ report, voyage, vessel, position, defaultOpen = fal
         </div>
 
         <div className="flex shrink-0 items-center gap-1">
-          <span
-            role="button"
+          <button
+            type="button"
             title={t.aiReport.downloadPdf}
-            aria-disabled
-            className="flex h-8 w-8 cursor-not-allowed items-center justify-center rounded-full text-slate-300 dark:text-slate-600"
+            disabled={pdfGenerating}
+            onClick={handleDownloadPdf}
+            className="flex h-8 w-8 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-[#6366f1] disabled:cursor-wait disabled:opacity-60 dark:text-slate-500 dark:hover:bg-slate-800"
           >
-            <FileDown className="h-4 w-4" />
-          </span>
-          <span
-            role="button"
+            {pdfGenerating ? <RefreshCw className="h-4 w-4 animate-spin" /> : <FileDown className="h-4 w-4" />}
+          </button>
+          <button
+            type="button"
             title={t.aiReport.reanalyze}
-            aria-disabled
-            className="flex h-8 w-8 cursor-not-allowed items-center justify-center rounded-full text-slate-300 dark:text-slate-600"
+            disabled={analyzing}
+            onClick={(e) => {
+              e.stopPropagation()
+              handleReanalyze()
+            }}
+            className="flex h-8 w-8 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-[#6366f1] disabled:cursor-wait disabled:opacity-60 dark:text-slate-500 dark:hover:bg-slate-800"
           >
-            <RefreshCw className="h-4 w-4" />
-          </span>
+            <RefreshCw className={cn('h-4 w-4', analyzing && 'animate-spin')} />
+          </button>
           {open ? <ChevronUp className="h-4 w-4 text-slate-400" /> : <ChevronDown className="h-4 w-4 text-slate-400" />}
         </div>
-      </button>
+      </div>
 
       {open && (
         <div className="space-y-5 border-t border-slate-200 px-5 py-5 dark:border-slate-700">
+          {analyzing && (
+            <div className="flex items-start gap-2 rounded-lg border border-[#6366f1]/30 bg-[#6366f1]/5 px-4 py-3 text-sm text-[#6366f1]">
+              <RefreshCw className="mt-0.5 h-4 w-4 shrink-0 animate-spin" />
+              <p>{t.aiReport.aiAnalyzingBanner}</p>
+            </div>
+          )}
+
           {!voyage.rtaConfirmed && (
             <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-300">
               <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
@@ -276,10 +439,18 @@ export function ReportCard({ report, voyage, vessel, position, defaultOpen = fal
 
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
             <div className="rounded-lg border-2 border-[#6366f1]/25 bg-white px-4 py-3 dark:bg-slate-800">
-              <span className="flex items-center gap-1.5 text-sm text-slate-500 dark:text-slate-400">
-                <Navigation className="h-4 w-4" />
-                {t.aiReport.speedComparison}
-              </span>
+              <div className="flex items-center gap-2">
+                <span className="flex items-center gap-1.5 text-sm text-slate-500 dark:text-slate-400">
+                  <Navigation className="h-4 w-4" />
+                  {t.aiReport.speedComparison}
+                </span>
+                {effectiveOverride && (
+                  <span className="flex items-center gap-1 rounded-full bg-[#6366f1]/10 px-2 py-0.5 text-xs font-medium text-[#6366f1]">
+                    <Sparkles className="h-3 w-3" />
+                    {t.aiReport.aiGeneratedBadge}
+                  </span>
+                )}
+              </div>
 
               <div className="mt-3 flex items-center justify-center gap-4">
                 <div className="text-center">
@@ -326,13 +497,7 @@ export function ReportCard({ report, voyage, vessel, position, defaultOpen = fal
               probability={speedPlan.currentSpeedProbability}
               tone={voyage.rtaConfirmed ? 'status' : 'blue'}
               descLabel={t.aiReport.rtaProbabilityDesc}
-              confidenceLabel={
-                speedPlan.currentSpeedProbability.confidence === 'high'
-                  ? t.aiReport.confidenceHigh
-                  : speedPlan.currentSpeedProbability.confidence === 'medium'
-                    ? t.aiReport.confidenceMedium
-                    : t.aiReport.confidenceLow
-              }
+              confidenceLabel={confidenceLabel(t, speedPlan.currentSpeedProbability.confidence)}
               marginLabel={
                 speedPlan.currentSpeedProbability.marginHours >= 0
                   ? t.aiReport.marginBuffer(deadlineTerm, formatNumber(speedPlan.currentSpeedProbability.marginHours))
@@ -419,21 +584,35 @@ export function ReportCard({ report, voyage, vessel, position, defaultOpen = fal
               currentPos={currentPos}
               arrivalLabel={t.aiReport.arrivalPortWeather}
               arrivalPos={arrivalPos}
-              refreshToken={0}
+              refreshToken={weatherRefreshToken}
             />
           </div>
 
           <div>
-            <h3 className="mb-2 text-base font-semibold">{t.aiReport.reasoning}</h3>
+            <div className="mb-2 flex items-center gap-2">
+              <h3 className="text-base font-semibold">{t.aiReport.reasoning}</h3>
+              {effectiveOverride && (
+                <span className="flex items-center gap-1 rounded-full bg-[#6366f1]/10 px-2 py-0.5 text-xs font-medium text-[#6366f1]">
+                  <Sparkles className="h-3 w-3" />
+                  {t.aiReport.aiGeneratedBadge}
+                </span>
+              )}
+            </div>
+            {aiError && (
+              <div className="mb-2 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-300">
+                <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                <p>{aiError === 'no_api_key' ? t.aiReport.aiApiKeyMissing : t.aiReport.aiReanalyzeFailed}</p>
+              </div>
+            )}
             <div className="rounded-lg bg-slate-50 px-4 py-3 text-sm whitespace-pre-line text-slate-700 dark:bg-slate-800/60 dark:text-slate-300">
-              {report.reasoning}
+              {displayReasoning}
             </div>
           </div>
 
           <div>
             <h3 className="mb-2 text-base font-semibold">{t.aiReport.risks}</h3>
             <div className="space-y-2">
-              {report.risks.map((risk, i) => {
+              {displayRisks.map((risk, i) => {
                 const Icon = risk.level === 'low' ? Info : AlertTriangle
                 const CategoryIcon = RISK_CATEGORY_ICON[risk.category]
                 return (
@@ -491,4 +670,4 @@ export function ReportCard({ report, voyage, vessel, position, defaultOpen = fal
       )}
     </div>
   )
-}
+})

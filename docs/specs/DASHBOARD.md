@@ -16,7 +16,7 @@
 | L4 (선택) | 실시간 기상·태풍 API, 딥링크, 자동 새로고침 | 외부 의존 |
 
 
-지도 관련 함정은 이미 KNOWN_PITFALLS.md 2장에 9건이 정리되어 있다. 지도를 만지기 전에 그 장을 먼저 읽으면 대부분을 겪지 않는다.
+지도 관련 함정은 이미 KNOWN_PITFALLS.md 2장에 10건이 정리되어 있다. 지도를 만지기 전에 그 장을 먼저 읽으면 대부분을 겪지 않는다.
 
 
 
@@ -231,7 +231,7 @@ SCHEDULE.md 3.5장과 동일하다 — mock 전용이 기본 권장. 오버레�
 | 6 | 지도 영역 | 항상 | 9 |
 
 
-지도 영역의 최소 높이: flex-1 flex min-h-[500px]. 상단 블록이 늘어나 뷰포트를 넘겨도 지도를 계속 짜부라뜨리지 않고, 최소 500px를 보장한 뒤 페이지 전체가 스크롤되게 한다.
+지도 영역의 최소 높이: relative flex-1 flex min-h-[500px]. 상단 블록이 늘어나 뷰포트를 넘겨도 지도를 계속 짜부라뜨리지 않고, 최소 500px를 보장한 뒤 페이지 전체가 스크롤되게 한다. relative는 9.1장에서 지도 컨테이너를 absolute inset-0으로 채우기 위한 기준점이다 — 이 relative가 없으면 지도 컨테이너가 엉뚱한 조상 기준으로 위치를 잡는다.
 
 ### 4.1 페이지 헤더
 공용 PageHeader(높이 64px 고정) 사용. 타이틀 "실시간 운항 대시보드", 부제 "선박 위치 및 항로·해상 기상 현황".
@@ -579,7 +579,9 @@ high 이슈가 있으면 "⚠ 심각도 높음 — 우선 확인 필요"(red-600
 
 const MapView = dynamic(() => import('@/features/dashboard/MapView'), { ssr: false })
 
-컴포넌트는 Leaflet CSS를 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">로 직접 로드하고, <div ref={containerRef} className="w-full h-full" /> 하나만 렌더링한다. 지도 생성은 전부 useEffect 안에서 명령형으로 수행한다(react-leaflet 컴포넌트를 쓰지 않는다).
+컴포넌트는 Leaflet CSS를 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">로 직접 로드하고, <div ref={containerRef} className="absolute inset-0" /> 하나만 렌더링한다. 지도 생성은 전부 useEffect 안에서 명령형으로 수행한다(react-leaflet 컴포넌트를 쓰지 않는다).
+
+className="w-full h-full"(퍼센트 기반)을 쓰지 않는다. 부모가 flex-1로 실제 픽셀 높이를 갖더라도 그 부모의 CSS height 속성 자체는 auto라 퍼센트 height가 해석되지 않고, Leaflet 내부 pane이 전부 position:absolute라 auto-height 계산에도 기여하지 못해 컨테이너가 0px로 접힌다. 콘솔 에러도 없고 타일 요청도 전부 200이라 원인을 찾기 어렵다(KNOWN_PITFALLS.md 2.10장). absolute inset-0은 퍼센트 계산을 거치지 않고 부모(4장에서 relative를 준)의 실제 박스 크기를 직접 참조하므로 이 문제를 피한다.
 
 Leaflet 모듈 자체도 effect 안에서 await import('leaflet')로 로드하며, StrictMode 이중 실행을 막기 위해 active 플래그를 둔다.
 

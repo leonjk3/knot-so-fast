@@ -14,9 +14,9 @@ const VOYAGE_CLASSES: Record<VoyageStatus, string> = {
   cancelled: 'bg-slate-100 text-slate-500',
 }
 
-export function VoyageBadge({ status }: { status: VoyageStatus }) {
+export function VoyageBadge({ status, className }: { status: VoyageStatus; className?: string }) {
   const { t } = useLanguage()
-  return <span className={cn(BADGE_BASE, VOYAGE_CLASSES[status])}>{t.status[status]}</span>
+  return <span className={cn(BADGE_BASE, VOYAGE_CLASSES[status], className)}>{t.status[status]}</span>
 }
 
 const VESSEL_CLASSES: Record<VesselStatus, string> = {

@@ -2,7 +2,7 @@
 # 알려진 함정 모음 (Known Pitfalls)
 문서 버전: 1.0.0
 최종 수정일: 2026-08-06
-목적: 원본 프로젝트를 3주간 개발하며 실제로 시간을 잃었던 버그 38건을 증상·원인·해결 형태로 정리한다. 해커톤 당일 같은 함정에 다시 빠지지 않기 위한 참조 문서다.
+목적: 원본 프로젝트를 3주간 개발하며 실제로 시간을 잃었던 버그 38건 + 재구현 과정에서 새로 발견된 항목을 증상·원인·해결 형태로 정리한다. 해커톤 당일 같은 함정에 다시 빠지지 않기 위한 참조 문서다.
 출처: 원본 저장소의 PROMPTS.md(3주간 프롬프트 이력)에서 버그 관련 요청 44건 + CHANGELOG.md의 Fixed 항목 전체를 교차 검증해, 원인과 해결이 명확히 확인된 것만 추렸다.
 
 사용법: 처음부터 읽지 말 것. 증상이 나타났을 때 0장 증상 인덱스에서 찾아 해당 항목만 본다. 단, 1.1 · 2.1 · 3.1 세 항목은 구현 전에 미리 읽어두면 애초에 겪지 않는다.
@@ -21,6 +21,8 @@
 | 딥링크로 이동했는데 스크롤 위치가 어긋남 | 1.4 |
 | 화면 좌하단에 정체불명 N 배지 | 1.5 |
 | CI에서만 린트/타입 에러 | 1.6 · 7.2 |
+| 토글 카드 안에 버튼을 넣었더니 콘솔에 hydration 에러 | 1.8 |
+| 서버 라우트 빌드 시 "client 훅을 import했다"는 에러로 500 | 1.9 |
 | 지도 마커의 텍스트가 잘림 | 2.1 |
 | 기상 카드가 선박 마커를 가림 | 2.2 |
 | 지도가 잘려 보임 | 2.3 |
@@ -30,6 +32,7 @@
 | 지도 이동이 "줌아웃 → 이동" 두 동작으로 끊김 | 2.7 |
 | 지도 위 버튼을 눌렀는데 패널이 닫힘 | 2.8 |
 | 항로선이 대륙을 통과 | 2.9 |
+| 타일 요청은 200인데 지도 영역이 통째로 안 보임 | 2.10 |
 | 조회 화면과 상세 팝업의 시·분이 다름 | 3.1 |
 | 날짜 고르기 전 시·분 선택이 무시됨 | 3.2 |
 | 드롭다운의 오전/오후 글자가 안 보임 | 3.3 |
@@ -133,6 +136,24 @@ getSnapshot():
 증상: library load disallowed by system policy로 dev 서버가 뜨지 않음.
 
 해결: next dev --webpack으로 우회. 샌드박스가 아닌 일반 환경에서는 발생하지 않는다.
+
+### 1.8 토글 컨테이너 버튼 안에 개별 액션 버튼을 중첩
+증상: 콘솔에 In HTML, `<button>` cannot be a descendant of `<button>` / `<button>` cannot contain a nested `<button>`와 함께 hydration 에러. AI 운항 리포트의 카드 헤더처럼, 행 전체를 펼침/접힘 토글로 만들고 그 안에 PDF 다운로드 같은 개별 액션 버튼을 넣었을 때 발생했다.
+
+원인: 카드 헤더 전체를 `<button onClick={토글}>`로 감싼 뒤, 그 안에 별도 동작(PDF 다운로드 등)을 하는 `<button>`을 또 넣었다. HTML 스펙상 인터랙티브 요소(`<button>`, `<a>` 등)는 서로 중첩할 수 없다 — 처음엔 비활성 `<span role="button">`으로 두어 문제가 없었는데, 나중에 실제 동작을 붙이며 `<button>`으로 승격시키면서 위반이 드러났다.
+
+해결: 바깥쪽 토글 컨테이너를 `<button>` 대신 `<div role="button" tabIndex={0}>`로 바꾸고, onClick과 onKeyDown(Enter/Space에서 preventDefault 후 토글)을 직접 붙인다. 접근성을 위해 aria-expanded={open}도 함께 준다. 내부의 개별 액션 버튼들은 그대로 실제 `<button>`으로 두되, onClick 맨 앞에서 e.stopPropagation()을 호출해 바깥 토글이 함께 발동하지 않게 한다.
+
+관련: AI_REPORT.md 4.2장(카드 헤더) · 9장(PDF 다운로드 버튼) · 7장(재분석 버튼)
+
+### 1.9 서버 라우트가 client 훅을 쓰는 모듈을 import
+증상: 서버 라우트 파일(app/api/.../route.ts) 요청 시 500과 함께 "You're importing a module that depends on `useEffect` into a React Server Component module. This API is only available in Client Components."
+
+원인: 서버에서도 재사용하려던 유틸(예: Open-Meteo fetch 래퍼)이, 클라이언트 훅(useState/useEffect)을 쓰는 같은 파일 안에 함께 있었다. 실제로는 그 훅을 호출하지 않고 순수 함수만 가져다 썼지만, Next.js는 사용 여부가 아니라 파일 단위로 "이 모듈이 client 전용 API를 참조하는가"를 정적 분석해서 막는다.
+
+해결: 훅이 없는 순수 로직만 별도 파일로 분리하고(react를 아예 import하지 않아야 한다), 클라이언트 훅 파일과 서버 라우트 양쪽이 그 분리된 파일을 각자 import한다. "재사용 가능한 로직"과 "그 로직을 감싸는 React 훅"은 처음부터 다른 파일에 둔다.
+
+관련: AI_REPORT.md 6.7장·7.3장(Open-Meteo 조회를 클라이언트 훅과 서버 라우트 양쪽에서 재사용) — lib/weather-fetch.ts(훅 없음) / lib/weather.ts(훅, weather-fetch.ts를 import)로 분리한 사례
 
 
 
@@ -252,6 +273,17 @@ iconAnchor: [0, 0]
 항로 데이터를 만들 시간이 없으면 SCHEDULE.md 6.3장의 haversine × 1.25 폴백을 쓴다. 육지 회피는 못 하지만 거리·ETA는 그럴듯해진다.
 
 관련: PROMPTS #27, #92
+
+### 2.10 flex-1 부모 아래에서 h-full이 auto로 해석돼 지도 컨테이너가 0px가 된다
+증상: 지도 영역이 통째로 빈 배경만 보임. 콘솔 에러 없음, 타일 네트워크 요청은 전부 200, DOM에도 .leaflet-tile이 정상 개수만큼 생성돼 있고 줌 컨트롤도 존재한다 — 겉으로는 아무 단서가 없다.
+
+원인: 지도 컨테이너 div에 className="h-full w-full"(퍼센트 기반)을 주고, 부모는 min-h-[500px] flex-1(flex 아이템)이었다. 부모는 flex-grow로 실제 화면에는 정상 픽셀 높이(예: 721px)로 렌더링되지만, CSS 스펙상 그 div의 height 속성 자체는 여전히 auto다 — getComputedStyle(el).height가 픽셀값을 반환하는 것과, 그 값이 자식의 퍼센트 height 계산에 쓰이는 "definite size"인지는 별개 문제다. 퍼센트 height는 부모의 height 계산값이 auto가 아닐 때만 해석되므로 h-full이 무시되고 auto로 떨어진다. Leaflet 내부 pane들은 전부 position:absolute라 부모의 auto-height(콘텐츠 높이) 계산에 전혀 기여하지 못해, 결국 컨테이너 자체가 0px로 접히고 leaflet.css의 overflow:hidden에 다 가려진다. 지도는 내부적으로 완벽하게 그려지고 있었는데, 그걸 담은 상자가 0px였을 뿐이다.
+
+해결: 지도 컨테이너의 부모에 relative를 주고, 지도 컨테이너 자신은 h-full w-full 대신 absolute inset-0을 쓴다. absolute + inset-0은 퍼센트 계산이 아니라 가장 가까운 positioned ancestor의 실제 박스 크기를 직접 참조하므로 이 문제를 원천적으로 피한다.
+
+진단 팁: 콘솔 에러가 없고 네트워크 탭도 전부 200이면 CSS/레이아웃 문제를 의심한다. getComputedStyle로 지도 컨테이너부터 부모 체인을 한 단계씩 올라가며 height를 비교하면 어느 지점에서 0이 되는지 바로 특정된다. 브라우저 DevTools가 없다면 puppeteer-core 같은 headless 브라우저로 같은 조사를 재현할 수 있다.
+
+관련: DASHBOARD_PROMPTS.md 1-3
 
 
 
