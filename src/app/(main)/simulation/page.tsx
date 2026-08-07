@@ -7,11 +7,19 @@ import { useLanguage } from '@/features/i18n/LanguageContext'
 import { cn } from '@/shared/utils/cn'
 import { MOCK_VOYAGES } from '@/mocks/voyages'
 import { MOCK_VESSELS } from '@/mocks/vessels'
-import { computeSimulation, computeRouteDistanceNm, computeCongestionWaitHours, computeBerthWaitHours } from '@/features/simulation/calc'
+import {
+  computeSimulation,
+  computeRouteDistanceNm,
+  computeCongestionWaitHours,
+  computeBerthWaitHours,
+  computeDraftFactor,
+} from '@/features/simulation/calc'
 import { CONGESTION_LEVELS } from '@/features/simulation/constants'
 import type { SimInputs } from '@/features/simulation/types'
 import { SavingsCard } from '@/features/simulation/components/SavingsCard'
 import { ArrivalCard } from '@/features/simulation/components/ArrivalCard'
+import { ComparisonChart } from '@/features/simulation/components/ComparisonChart'
+import { SpeedCurveChart } from '@/features/simulation/components/SpeedCurveChart'
 
 function portShortName(label: string): string {
   return label.split(' ')[0]
@@ -75,6 +83,9 @@ export default function SimulationPage() {
       </div>
     )
   }
+
+  const appliedRouteDistance = computeRouteDistanceNm(appliedVoyage, applied.route)
+  const appliedDraftFactor = computeDraftFactor(applied.cargoPercent)
 
   const departureLabel =
     draft.departureOffset === 0
@@ -304,6 +315,13 @@ export default function SimulationPage() {
               simDays={output.simulated.days}
               portWaitHours={output.portWaitHours}
               portWaitCost={output.portWaitCost}
+            />
+            <ComparisonChart planned={output.planned} simulated={output.simulated} historical={output.historical} />
+            <SpeedCurveChart
+              routeDistanceNm={appliedRouteDistance}
+              draftFactor={appliedDraftFactor}
+              plannedSpeedKnots={appliedVoyage.plannedSpeedKnots}
+              simSpeedKnots={applied.speedKnots}
             />
           </div>
         </div>
