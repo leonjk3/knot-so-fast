@@ -141,6 +141,20 @@ const ko = {
     switchToRecommendedHint: (term: string, kts: string) =>
       `→ AI 권장 속도(${kts}kts)로 전환 시 ${term} 100% 준수 가능`,
   },
+  users: {
+    title: '사용자 관리',
+    subtitle: '계정, 역할, 선박 배정 관리',
+    addUser: '사용자 추가',
+    searchPlaceholder: '이름, 이메일 검색',
+    colUser: '사용자',
+    colRole: '역할',
+    colDept: '부서',
+    colVessel: '배정 선박',
+    colStatus: '상태',
+    colAction: '액션',
+    deactivate: '비활성화',
+    activate: '활성화',
+  },
 }
 
 export type Translations = typeof ko
@@ -287,6 +301,20 @@ const en: Translations = {
       `Required avg. speed = est. distance ${nm}nm / time remaining ${h}h = ${kts}kts`,
     switchToRecommendedHint: (term: string, kts: string) =>
       `→ Switching to the AI-recommended speed (${kts}kts) achieves 100% ${term} compliance`,
+  },
+  users: {
+    title: 'User Management',
+    subtitle: 'Accounts, roles and vessel assignments',
+    addUser: 'Add User',
+    searchPlaceholder: 'Search name, email',
+    colUser: 'User',
+    colRole: 'Role',
+    colDept: 'Department',
+    colVessel: 'Assigned Vessel',
+    colStatus: 'Status',
+    colAction: 'Action',
+    deactivate: 'Deactivate',
+    activate: 'Activate',
   },
 }
 
