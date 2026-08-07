@@ -101,10 +101,15 @@ grid grid-cols-4 md:grid-cols-8 컨테이너에 아래를 배치한다:
    errorTileUrl로는 걸러지지 않는다.
 5. (9.5) LayerGroup 3개(voyage/port/overlay)와 커스텀 pane weatherPane(z-index 400,
    pointer-events none)을 만들어둔다.
+6. 지도 컨테이너에 className="w-full h-full"(퍼센트)을 쓰지 마라. 부모가 flex-1로 실제
+   픽셀 높이를 가져도 그 부모의 CSS height 속성은 여전히 auto라 퍼센트가 해석되지 않고,
+   Leaflet 내부 pane은 전부 position:absolute라 auto-height 계산에도 안 잡혀 컨테이너가
+   0px로 접힌다. 콘솔 에러도 없고 타일 요청도 200이라 원인을 찾기 어렵다. 부모에 relative,
+   지도 컨테이너에는 absolute inset-0을 써라(KNOWN_PITFALLS.md 2.10).
 
 cleanup에서 map.remove()와 모든 ref 정리를 잊지 마라.
 
-완료 확인 — 지도가 뜨고, 좌측 끝이 유럽/아프리카다. 최대로 축소해도 세계지도가 한 벌만 보인다. 확대해도 Zoom Level not supported 문구가 안 보인다.
+완료 확인 — 지도가 뜨고, 좌측 끝이 유럽/아프리카다. 최대로 축소해도 세계지도가 한 벌만 보인다. 확대해도 Zoom Level not supported 문구가 안 보인다. 콘솔에 에러가 없다고 안심하지 말고, 실제로 화면에 타일이 채워져 보이는지 눈으로 확인한다.
 
 ## 1-4. 항차 레이어 — 항로와 선박 마커
 명세: DASHBOARD.md 9.7 · 소요 25분
@@ -323,6 +328,7 @@ docs/specs/KNOWN_PITFALLS.md 0장 증상 인덱스에서 해당 항목을 찾아
 | 지도 이동이 "줌아웃 → 이동" 두 동작으로 끊김 | 2.7 |
 | 지도 위 버튼을 눌렀는데 패널이 닫힘 | 2.8 |
 | 항로선이 대륙을 통과 | 2.9 |
+| 콘솔 에러도 없고 타일 요청도 200인데 지도가 안 보임 | 2.10 |
 | 기상 카드 텍스트가 잘림 | 2.1 |
 | 기상 카드가 선박 마커를 가림 | 2.2 |
 | 필터가 간헐적으로 동작 안 함 | 1.3 |
