@@ -1,8 +1,15 @@
 'use client'
 
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { Map as LeafletMap, LayerGroup } from 'leaflet'
-import { WORLD_BOUNDS } from './mapSeam'
+import type { AisPosition } from '@/shared/types'
+import { OWN_COMPANY_NAME, VOYAGE_STATUS_COLORS } from '@/shared/constants'
+import { formatDateTime } from '@/shared/utils/format'
+import { MOCK_VOYAGES } from '@/mocks/voyages'
+import { MOCK_VESSELS } from '@/mocks/vessels'
+import { MOCK_POSITIONS } from '@/mocks/positions'
+import { WORLD_BOUNDS, wrapLng, wrapRouteSegments } from './mapSeam'
+import { getDisplayRoute, computeActualRoute, buildVesselMarkerIcon, buildVesselPopupHtml } from './voyageLayer'
 
 // 오류를 200 응답 이미지로 반환하는 타일 서버(OpenSeaMap 등) 대비 — 1×1 투명 PNG
 const ERROR_TILE_URL =
@@ -33,13 +40,18 @@ function waitForLeafletCss(): Promise<void> {
   })
 }
 
-export default function MapView() {
+interface MapViewProps {
+  selectedVoyageIds: Set<string>
+}
+
+export default function MapView({ selectedVoyageIds }: MapViewProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<LeafletMap | null>(null)
   const voyageLayerRef = useRef<LayerGroup | null>(null)
   const portLayerRef = useRef<LayerGroup | null>(null)
   const overlayLayerRef = useRef<LayerGroup | null>(null)
   const resizeHandlerRef = useRef<(() => void) | null>(null)
+  const [mapReady, setMapReady] = useState(false)
 
   useEffect(() => {
     let active = true
@@ -113,12 +125,15 @@ export default function MapView() {
       }
       window.addEventListener('resize', handleResize)
       resizeHandlerRef.current = handleResize
+
+      setMapReady(true)
     }
 
     init().catch((err) => console.error('[MapView] init failed:', err))
 
     return () => {
       active = false
+      setMapReady(false)
       if (resizeHandlerRef.current) {
         window.removeEventListener('resize', resizeHandlerRef.current)
         resizeHandlerRef.current = null
@@ -130,6 +145,80 @@ export default function MapView() {
       overlayLayerRef.current = null
     }
   }, [])
+
+  // 항차 레이어(9.7장) — 계획 항로 + 실제 항적 + 선박 마커. 선택 항차가 바뀔 때마다
+  // clearLayers()로 비우고 다시 그린다(9.5장).
+  useEffect(() => {
+    if (!mapReady) return
+    const voyageLayer = voyageLayerRef.current
+    if (!voyageLayer) return
+
+    let cancelled = false
+    voyageLayer.clearLayers()
+
+    if (selectedVoyageIds.size > 0) {
+      import('leaflet').then((L) => {
+        if (cancelled) return
+
+        for (const voyageId of selectedVoyageIds) {
+          const voyage = MOCK_VOYAGES.find((v) => v.id === voyageId)
+          if (!voyage) continue
+          const vessel = MOCK_VESSELS.find((v) => v.id === voyage.vesselId)
+          if (!vessel) continue
+          const position: AisPosition | undefined = MOCK_POSITIONS.find((p) => p.vesselId === voyage.vesselId)
+
+          const statusColor = VOYAGE_STATUS_COLORS[voyage.status]
+          const displayRoute = getDisplayRoute(voyage)
+
+          // ① 계획 항로 — 점선
+          L.polyline(wrapRouteSegments(displayRoute), {
+            color: statusColor,
+            weight: 2,
+            dashArray: '8,6',
+            opacity: 0.6,
+          }).addTo(voyageLayer)
+
+          // ② 실제 항적 — 계획 항로를 현재 위치까지 슬라이싱한 실선
+          const actualRoute = computeActualRoute(voyage, displayRoute, position)
+          L.polyline(wrapRouteSegments(actualRoute), {
+            color: statusColor,
+            weight: 2.5,
+            opacity: 0.85,
+          }).addTo(voyageLayer)
+
+          if (!position) continue
+
+          // ③ 선박 마커
+          const isOwn = vessel.company === OWN_COMPANY_NAME
+          const { html, size } = buildVesselMarkerIcon({ isOwn, cogDegrees: position.cogDegrees, statusColor })
+          const icon = L.divIcon({ html, className: '', iconSize: [size, size], iconAnchor: [size / 2, size / 2] })
+          const marker = L.marker([position.lat, wrapLng(position.lng)], { icon }).addTo(voyageLayer)
+
+          // ④ 팝업
+          marker.bindPopup(
+            buildVesselPopupHtml({
+              vesselName: vessel.name,
+              companyName: vessel.company,
+              isOwn,
+              departurePort: voyage.departurePort,
+              arrivalPort: voyage.arrivalPort,
+              speedKnots: position.speedKnots,
+              etaLabel: formatDateTime(voyage.eta),
+              status: voyage.status,
+              statusColor,
+              vesselId: vessel.id,
+              voyageId: voyage.id,
+            }),
+            { minWidth: 200 },
+          )
+        }
+      })
+    }
+
+    return () => {
+      cancelled = true
+    }
+  }, [mapReady, selectedVoyageIds])
 
   return (
     <>
