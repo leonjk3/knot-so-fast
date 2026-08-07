@@ -40,6 +40,10 @@ const ko = {
     CAPTAIN: '선장·선원',
     CLIENT: '화주',
   },
+  dashboard: {
+    title: '실시간 운항 대시보드',
+    subtitle: '선박 위치 및 항로·해상 기상 현황',
+  },
   login: {
     title: '로그인',
     subtitle: '계정에 로그인하여 시스템을 이용하세요.',
@@ -182,6 +186,10 @@ const en: Translations = {
     LOGISTICS: 'Logistics',
     CAPTAIN: 'Captain',
     CLIENT: 'Client',
+  },
+  dashboard: {
+    title: 'Live Operations Dashboard',
+    subtitle: 'Vessel positions, routes & weather overview',
   },
   login: {
     title: 'Sign In',
