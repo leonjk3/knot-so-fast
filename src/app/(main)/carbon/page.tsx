@@ -6,8 +6,17 @@ import { PageHeader } from '@/shared/components/PageHeader'
 import { useLanguage } from '@/features/i18n/LanguageContext'
 import { MOCK_VOYAGES } from '@/mocks/voyages'
 import { MOCK_VESSELS } from '@/mocks/vessels'
-import { computeEmissions, computeThreeWayComparison, computeScope3 } from '@/features/carbon/calc'
+import {
+  computeEmissions,
+  computeThreeWayComparison,
+  computeScope3,
+  computeCiiTrend,
+  computeCiiSimulator,
+} from '@/features/carbon/calc'
 import { CarbonStatCard } from '@/features/carbon/components/CarbonStatCard'
+import { CiiGauge } from '@/features/carbon/components/CiiGauge'
+import { CiiTrendChart } from '@/features/carbon/components/CiiTrendChart'
+import { CiiSimulator } from '@/features/carbon/components/CiiSimulator'
 
 function portShortName(label: string): string {
   return label.split(' ')[0]
@@ -28,7 +37,15 @@ export default function CarbonPage() {
   const comparison = useMemo(() => (emissions ? computeThreeWayComparison(emissions) : null), [emissions])
   const scope3 = useMemo(() => (comparison ? computeScope3(comparison) : null), [comparison])
 
-  if (!selectedVoyage || !selectedVessel || !emissions || !comparison || !scope3) {
+  const ciiTrendScores = useMemo(() => (emissions ? computeCiiTrend(emissions.baseCiiScore) : null), [emissions])
+  const ciiSimulator = useMemo(
+    () =>
+      emissions && comparison && selectedVoyage
+        ? computeCiiSimulator(selectedVoyage, comparison.current.ciiGrade, emissions.baseCiiScore, emissions.totalCo2Ton)
+        : null,
+    [emissions, comparison, selectedVoyage],
+  )
+  if (!selectedVoyage || !selectedVessel || !emissions || !comparison || !scope3 || !ciiTrendScores || !ciiSimulator) {
     return (
       <div className="flex h-full flex-col">
         <PageHeader title={t.carbon.title} />
@@ -116,6 +133,12 @@ export default function CarbonPage() {
               </button>
             </div>
           </div>
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+          <CiiGauge grade={comparison.current.ciiGrade} score={comparison.current.avgCiiScore} nextBetterGrade={ciiSimulator.nextBetterGrade} />
+          <CiiTrendChart scores={ciiTrendScores} />
+          <CiiSimulator sim={ciiSimulator} />
         </div>
       </div>
     </div>
