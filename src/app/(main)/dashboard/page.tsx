@@ -8,7 +8,7 @@ import { SummaryCards } from '@/features/dashboard/SummaryCards'
 import { FleetGaugeCard } from '@/features/dashboard/FleetGaugeCard'
 import { FilterBar } from '@/features/dashboard/FilterBar'
 import { computeFleetGauges, getActiveVoyages } from '@/features/dashboard/fleetGauge'
-import { computeDestinations, computeVisibleVoyageIds, type QuickFilterKey } from '@/features/dashboard/filters'
+import { computeDestinations, computeVisibleVoyageIds, layersForFilters, type QuickFilterKey } from '@/features/dashboard/filters'
 import { MOCK_VOYAGES } from '@/mocks/voyages'
 import { MOCK_VESSELS } from '@/mocks/vessels'
 import { MOCK_POSITIONS } from '@/mocks/positions'
@@ -43,6 +43,7 @@ export default function DashboardPage() {
     () => computeVisibleVoyageIds({ filters: activeFilters, destinationFilter, destinations, selectedVoyageIds }),
     [activeFilters, destinationFilter, destinations, selectedVoyageIds],
   )
+  const layers = useMemo(() => layersForFilters(activeFilters), [activeFilters])
 
   // DASHBOARD.md 7.2장 — wasActive는 업데이터 바깥에서 먼저 읽는다. 업데이터 안에서 다른
   // state의 setter를 호출하면 부수효과가 중복 실행돼 "필터가 간헐적으로 안 먹는" 버그가 난다
@@ -98,7 +99,7 @@ export default function DashboardPage() {
       {/* 지도 영역 (9장 MapView) — 최소 500px 보장, 상단 블록이 늘어나도 짜부라지지 않는다.
           relative는 MapView 내부의 absolute inset-0 컨테이너가 크기를 잡는 기준이 된다. */}
       <div className="relative min-h-[500px] flex-1">
-        <MapView visibleVoyageIds={visibleVoyageIds} resetToken={resetMapToken} />
+        <MapView visibleVoyageIds={visibleVoyageIds} resetToken={resetMapToken} layers={layers} />
       </div>
     </div>
   )
