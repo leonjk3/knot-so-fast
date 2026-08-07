@@ -277,6 +277,8 @@ Track A — 반입한 mocks/port-congestion.ts에 항구 12곳이 들어 있으�
 우측: "전체 재분석" 버튼 (외곽선 스타일, 아이콘 RefreshCw + 라벨. 클릭 시 아이콘이 animate-spin으로 회전하고 버튼 비활성화).
 
 ### 4.2 리포트 카드 — 헤더 행 (항상 보임, 클릭하면 펼침/접힘 토글)
+구현 주의: 이 헤더 행 전체를 펼침/접힘 토글로 만들면서 그 안에 PDF 다운로드·재분석처럼 실제 동작하는 `<button>`을 넣으면 `<button>` 안에 `<button>`이 중첩되어 hydration 에러가 난다. 바깥쪽 토글 컨테이너는 `<button>`이 아니라 `<div role="button" tabIndex={0}>` + onClick/onKeyDown(Enter·Space)으로 구현한다(KNOWN_PITFALLS.md 1.8).
+
 각 리포트는 둥근 모서리(rounded-xl) 카드, 흰 배경(다크: slate-900), 얇은 테두리. 카드 헤더 행 좌→우 순서:
 
 선박 아이콘 배지: 44×44px 회색 박스(bg-slate-100, 다크 bg-slate-700) 안에 Ship 아이콘(인디고 #6366f1).
@@ -563,7 +565,7 @@ GET https://marine-api.open-meteo.com/v1/marine?latitude={lat}&longitude={lng}&c
 ### 7.3 서버 처리
 body 필수 필드 검증(누락 시 { ok: false, reason: 'bad_request' }, HTTP 400).
 Gemini 설정 확인: Vertex AI 경로면 GOOGLE_GENAI_USE_VERTEXAI=true + GOOGLE_CLOUD_PROJECT, 아니면 GEMINI_API_KEY(또는 GOOGLE_API_KEY) 필요. 미설정이면 { ok: false, reason: 'no_api_key' }(HTTP 200 — 실패이지만 "정상적으로 설정 안 됨"이라는 의미라 200으로 반환).
-클라이언트와 동일한 Open-Meteo 조회를 서버에서 한 번 더 수행(현재 위치·도착항 풍속/파고) — Gemini 키는 서버 전용이라 클라이언트 상태에 의존하지 않기 위함.
+클라이언트와 동일한 Open-Meteo 조회를 서버에서 한 번 더 수행(현재 위치·도착항 풍속/파고) — Gemini 키는 서버 전용이라 클라이언트 상태에 의존하지 않기 위함. 구현 주의: 6.7장의 조회 로직을 재사용하려고 클라이언트 훅(useState/useEffect) 파일을 서버 라우트가 그대로 import하면 "client 훅을 import했다"는 빌드 에러가 난다. fetch 로직은 훅이 없는 별도 파일로 분리해 클라이언트 훅 파일과 서버 라우트 양쪽에서 그 파일만 import한다(KNOWN_PITFALLS.md 1.9).
 requiredSpeedKnots = computeRequiredSpeedKnots(baselineRecommendedSpeedKnots, baselineEtaAt, nowIso, deadlineAt) — 6.3장과 완전히 동일한 함수/공식을 서버에도 구현.
 Gemini 호출: 모델 기본값 gemini-2.5-flash(env GEMINI_MODEL로 override 가능). responseMimeType: application/json + 아래 JSON 스키마로 구조화 출력 강제:
 

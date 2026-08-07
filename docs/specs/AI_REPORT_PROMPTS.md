@@ -82,4 +82,6 @@ AI_REPORT.md 7장 · API 키가 없으면 건너뛰세요. 화면은 이미 완�
 | 계산 공유 | KNOWN_PITFALLS.md 5.2 |
 | 딥링크 스크롤 | 펼침 상태를 flushSync로 먼저 커밋한 뒤 스크롤해야 위치가 맞는다 — KNOWN_PITFALLS.md 1.4 |
 | 딥링크 키 | 대시보드가 보내는 정확한 키는 ksf:ai-report-vessel-id (AI_REPORT.md 8장) |
+| 카드 헤더 버튼 중첩 | 4.2장 카드 헤더(펼침/접힘 토글) 안에 PDF 다운로드·재분석처럼 실제 동작하는 `<button>`을 넣으면 `<button>` 안에 `<button>`이 중첩되어 hydration 에러가 난다. 바깥 토글을 `<div role="button" tabIndex={0}>`로 구현할 것 — KNOWN_PITFALLS.md 1.8 |
+| Open-Meteo 서버 재사용 | 7.3장(서버 재조회)이 6.7장의 클라이언트 훅 파일을 그대로 import하면 "client 훅을 import했다"는 빌드 에러가 난다. fetch 로직을 훅 없는 별도 파일로 분리해 양쪽이 그 파일을 import할 것 — KNOWN_PITFALLS.md 1.9 |
 

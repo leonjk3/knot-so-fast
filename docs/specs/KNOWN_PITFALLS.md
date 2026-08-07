@@ -21,6 +21,8 @@
 | 딥링크로 이동했는데 스크롤 위치가 어긋남 | 1.4 |
 | 화면 좌하단에 정체불명 N 배지 | 1.5 |
 | CI에서만 린트/타입 에러 | 1.6 · 7.2 |
+| 토글 카드 안에 버튼을 넣었더니 콘솔에 hydration 에러 | 1.8 |
+| 서버 라우트 빌드 시 "client 훅을 import했다"는 에러로 500 | 1.9 |
 | 지도 마커의 텍스트가 잘림 | 2.1 |
 | 기상 카드가 선박 마커를 가림 | 2.2 |
 | 지도가 잘려 보임 | 2.3 |
@@ -134,6 +136,24 @@ getSnapshot():
 증상: library load disallowed by system policy로 dev 서버가 뜨지 않음.
 
 해결: next dev --webpack으로 우회. 샌드박스가 아닌 일반 환경에서는 발생하지 않는다.
+
+### 1.8 토글 컨테이너 버튼 안에 개별 액션 버튼을 중첩
+증상: 콘솔에 In HTML, `<button>` cannot be a descendant of `<button>` / `<button>` cannot contain a nested `<button>`와 함께 hydration 에러. AI 운항 리포트의 카드 헤더처럼, 행 전체를 펼침/접힘 토글로 만들고 그 안에 PDF 다운로드 같은 개별 액션 버튼을 넣었을 때 발생했다.
+
+원인: 카드 헤더 전체를 `<button onClick={토글}>`로 감싼 뒤, 그 안에 별도 동작(PDF 다운로드 등)을 하는 `<button>`을 또 넣었다. HTML 스펙상 인터랙티브 요소(`<button>`, `<a>` 등)는 서로 중첩할 수 없다 — 처음엔 비활성 `<span role="button">`으로 두어 문제가 없었는데, 나중에 실제 동작을 붙이며 `<button>`으로 승격시키면서 위반이 드러났다.
+
+해결: 바깥쪽 토글 컨테이너를 `<button>` 대신 `<div role="button" tabIndex={0}>`로 바꾸고, onClick과 onKeyDown(Enter/Space에서 preventDefault 후 토글)을 직접 붙인다. 접근성을 위해 aria-expanded={open}도 함께 준다. 내부의 개별 액션 버튼들은 그대로 실제 `<button>`으로 두되, onClick 맨 앞에서 e.stopPropagation()을 호출해 바깥 토글이 함께 발동하지 않게 한다.
+
+관련: AI_REPORT.md 4.2장(카드 헤더) · 9장(PDF 다운로드 버튼) · 7장(재분석 버튼)
+
+### 1.9 서버 라우트가 client 훅을 쓰는 모듈을 import
+증상: 서버 라우트 파일(app/api/.../route.ts) 요청 시 500과 함께 "You're importing a module that depends on `useEffect` into a React Server Component module. This API is only available in Client Components."
+
+원인: 서버에서도 재사용하려던 유틸(예: Open-Meteo fetch 래퍼)이, 클라이언트 훅(useState/useEffect)을 쓰는 같은 파일 안에 함께 있었다. 실제로는 그 훅을 호출하지 않고 순수 함수만 가져다 썼지만, Next.js는 사용 여부가 아니라 파일 단위로 "이 모듈이 client 전용 API를 참조하는가"를 정적 분석해서 막는다.
+
+해결: 훅이 없는 순수 로직만 별도 파일로 분리하고(react를 아예 import하지 않아야 한다), 클라이언트 훅 파일과 서버 라우트 양쪽이 그 분리된 파일을 각자 import한다. "재사용 가능한 로직"과 "그 로직을 감싸는 React 훅"은 처음부터 다른 파일에 둔다.
+
+관련: AI_REPORT.md 6.7장·7.3장(Open-Meteo 조회를 클라이언트 훅과 서버 라우트 양쪽에서 재사용) — lib/weather-fetch.ts(훅 없음) / lib/weather.ts(훅, weather-fetch.ts를 import)로 분리한 사례
 
 
 
