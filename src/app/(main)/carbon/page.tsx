@@ -13,6 +13,9 @@ import {
   computeCiiTrend,
   computeCiiSimulator,
   computeAnchorScenario,
+  computeFunFacts,
+  computeFleetRanking,
+  computeBadgeProgress,
 } from '@/features/carbon/calc'
 import { CarbonStatCard } from '@/features/carbon/components/CarbonStatCard'
 import { CiiGauge } from '@/features/carbon/components/CiiGauge'
@@ -20,6 +23,10 @@ import { CiiTrendChart } from '@/features/carbon/components/CiiTrendChart'
 import { CiiSimulator } from '@/features/carbon/components/CiiSimulator'
 import { AnchorCarbonChart } from '@/features/carbon/components/AnchorCarbonChart'
 import { ComparisonTable } from '@/features/carbon/components/ComparisonTable'
+import { FunFactsCard } from '@/features/carbon/components/FunFactsCard'
+import { EcoRankingCard } from '@/features/carbon/components/EcoRankingCard'
+import { CarbonSavingsCan } from '@/features/carbon/components/CarbonSavingsCan'
+import { Scope3Modal } from '@/features/carbon/components/Scope3Modal'
 
 function portShortName(label: string): string {
   return label.split(' ')[0]
@@ -28,6 +35,7 @@ function portShortName(label: string): string {
 export default function CarbonPage() {
   const { t } = useLanguage()
   const [voyageId, setVoyageId] = useState<string | null>(null)
+  const [certOpen, setCertOpen] = useState(false)
 
   // §5.1 — 항차/선박을 찾지 못하면 조기 반환한다.
   const selectedVoyage = MOCK_VOYAGES.find((v) => v.id === voyageId) ?? MOCK_VOYAGES[0]
@@ -49,8 +57,26 @@ export default function CarbonPage() {
     [emissions, comparison, selectedVoyage],
   )
   const anchorScenario = useMemo(() => (emissions ? computeAnchorScenario(emissions.totalCo2Ton) : null), [emissions])
+  const funFacts = useMemo(() => (scope3 ? computeFunFacts(scope3.scope3SavedTon) : null), [scope3])
+  const fleetRanking = useMemo(
+    () => (selectedVessel && scope3 ? computeFleetRanking(selectedVessel, scope3, MOCK_VESSELS) : null),
+    [selectedVessel, scope3],
+  )
+  const badgeProgress = useMemo(() => (scope3 ? computeBadgeProgress(scope3.scope3SavedPct) : null), [scope3])
 
-  if (!selectedVoyage || !selectedVessel || !emissions || !comparison || !scope3 || !ciiTrendScores || !ciiSimulator || !anchorScenario) {
+  if (
+    !selectedVoyage ||
+    !selectedVessel ||
+    !emissions ||
+    !comparison ||
+    !scope3 ||
+    !ciiTrendScores ||
+    !ciiSimulator ||
+    !anchorScenario ||
+    !funFacts ||
+    !fleetRanking ||
+    !badgeProgress
+  ) {
     return (
       <div className="flex h-full flex-col">
         <PageHeader title={t.carbon.title} />
@@ -131,6 +157,7 @@ export default function CarbonPage() {
               </div>
               <button
                 type="button"
+                onClick={() => setCertOpen(true)}
                 className="flex shrink-0 items-center gap-1.5 rounded-lg bg-[#6366f1] px-3 py-2 text-xs font-semibold text-white hover:bg-[#4f46e5]"
               >
                 <FileText className="h-3.5 w-3.5" />
@@ -149,7 +176,30 @@ export default function CarbonPage() {
         <AnchorCarbonChart scenario={anchorScenario} />
 
         <ComparisonTable comparison={comparison} vesselName={selectedVessel.name} />
+
+        <div className="grid gap-5 lg:grid-cols-[580px_1fr]">
+          <FunFactsCard scope3SavedTon={scope3.scope3SavedTon} facts={funFacts} />
+          <EcoRankingCard ranking={fleetRanking.ranking} rank={fleetRanking.rank} />
+        </div>
+
+        <CarbonSavingsCan scope3SavedTon={scope3.scope3SavedTon} scope3SavedPct={scope3.scope3SavedPct} progress={badgeProgress} />
       </div>
+
+      {certOpen && (
+        <Scope3Modal
+          voyageId={selectedVoyage.id}
+          input={{
+            vesselName: selectedVessel.name,
+            departurePort: selectedVoyage.departurePort,
+            arrivalPort: selectedVoyage.arrivalPort,
+            distanceNm: selectedVoyage.distanceNm,
+            cargoDescription: selectedVoyage.cargoDescription,
+            savedTon: scope3.scope3SavedTon,
+            savedPct: scope3.scope3SavedPct,
+          }}
+          onClose={() => setCertOpen(false)}
+        />
+      )}
     </div>
   )
 }
