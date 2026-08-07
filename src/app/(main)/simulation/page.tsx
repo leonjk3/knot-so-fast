@@ -1,7 +1,7 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import { FlaskConical, PlayCircle, Anchor } from 'lucide-react'
+import { FlaskConical, PlayCircle, Anchor, Download } from 'lucide-react'
 import { PageHeader } from '@/shared/components/PageHeader'
 import { useLanguage } from '@/features/i18n/LanguageContext'
 import { cn } from '@/shared/utils/cn'
@@ -20,6 +20,7 @@ import { SavingsCard } from '@/features/simulation/components/SavingsCard'
 import { ArrivalCard } from '@/features/simulation/components/ArrivalCard'
 import { ComparisonChart } from '@/features/simulation/components/ComparisonChart'
 import { SpeedCurveChart } from '@/features/simulation/components/SpeedCurveChart'
+import { exportSimulationPdf } from '@/features/simulation/pdf'
 
 function portShortName(label: string): string {
   return label.split(' ')[0]
@@ -52,6 +53,7 @@ export default function SimulationPage() {
   // mock 전용이라 데이터가 항상 동기적으로 존재한다 — SWR로 전환 시에는 §5.1의
   // 초기화 effect(voyages.length 의존)로 바꾸고 이 초기값을 null로 둔다.
   const [applied, setApplied] = useState<SimInputs | null>(buildDefaultInputs)
+  const [pdfGenerating, setPdfGenerating] = useState(false)
 
   const targetCandidates = useMemo(() => MOCK_VOYAGES.filter((v) => v.status === 'preparing' || v.status === 'underway'), [])
   const compareCandidates = useMemo(() => MOCK_VOYAGES.filter((v) => v.status === 'completed'), [])
@@ -86,6 +88,25 @@ export default function SimulationPage() {
 
   const appliedRouteDistance = computeRouteDistanceNm(appliedVoyage, applied.route)
   const appliedDraftFactor = computeDraftFactor(applied.cargoPercent)
+  const appliedBerthWaitHours = computeBerthWaitHours(applied.berthProgress)
+
+  async function handleDownloadPdf() {
+    if (!applied || !appliedVoyage || !appliedVessel || !output || pdfGenerating) return
+    setPdfGenerating(true)
+    try {
+      await exportSimulationPdf({
+        voyage: appliedVoyage,
+        vessel: appliedVessel,
+        applied,
+        output,
+        routeDistanceNm: appliedRouteDistance,
+        berthWaitHours: appliedBerthWaitHours,
+        compareVoyage,
+      })
+    } finally {
+      setPdfGenerating(false)
+    }
+  }
 
   const departureLabel =
     draft.departureOffset === 0
@@ -301,6 +322,16 @@ export default function SimulationPage() {
               >
                 <PlayCircle className="h-4 w-4" />
                 {t.simulation.runSim}
+              </button>
+              <button
+                type="button"
+                title={t.simulation.downloadPdfHint}
+                disabled={pdfGenerating}
+                onClick={handleDownloadPdf}
+                className="flex items-center justify-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:cursor-wait disabled:opacity-60 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+              >
+                <Download className="h-4 w-4" />
+                {t.simulation.downloadPdf}
               </button>
             </div>
           </div>
