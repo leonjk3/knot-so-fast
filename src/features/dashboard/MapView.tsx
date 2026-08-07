@@ -5,9 +5,7 @@ import type { Map as LeafletMap, LayerGroup } from 'leaflet'
 import type { AisPosition } from '@/shared/types'
 import { OWN_COMPANY_NAME, VOYAGE_STATUS_COLORS } from '@/shared/constants'
 import { formatDateTime } from '@/shared/utils/format'
-import { MOCK_VOYAGES } from '@/mocks/voyages'
-import { MOCK_VESSELS } from '@/mocks/vessels'
-import { MOCK_POSITIONS } from '@/mocks/positions'
+import { ALL_VOYAGES, ALL_VESSELS, ALL_POSITIONS } from './fleetData'
 import { WORLD_BOUNDS, wrapLng, wrapRouteSegments } from './mapSeam'
 import { getDisplayRoute, computeActualRoute, buildVesselMarkerIcon, buildVesselPopupHtml } from './voyageLayer'
 
@@ -41,10 +39,14 @@ function waitForLeafletCss(): Promise<void> {
 }
 
 interface MapViewProps {
-  selectedVoyageIds: Set<string>
+  // 필터 바(7.6장)를 거쳐 파생된, 실제로 지도에 그려야 할 항차 id 집합
+  visibleVoyageIds: Set<string>
+  // 값이 바뀔 때마다(0은 초기값이라 무시) 기본 시야로 복귀한다 — 9.9장 MapFocusTarget의
+  // token 패턴을 그대로 따른 최소 구현
+  resetToken?: number
 }
 
-export default function MapView({ selectedVoyageIds }: MapViewProps) {
+export default function MapView({ visibleVoyageIds, resetToken = 0 }: MapViewProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<LeafletMap | null>(null)
   const voyageLayerRef = useRef<LayerGroup | null>(null)
@@ -146,8 +148,8 @@ export default function MapView({ selectedVoyageIds }: MapViewProps) {
     }
   }, [])
 
-  // 항차 레이어(9.7장) — 계획 항로 + 실제 항적 + 선박 마커. 선택 항차가 바뀔 때마다
-  // clearLayers()로 비우고 다시 그린다(9.5장).
+  // 항차 레이어(9.7장) — 계획 항로 + 실제 항적 + 선박 마커. 표시 대상이 바뀔 때마다
+  // clearLayers()로 비우고 다시 그린다(9.5장). 자사·타사 모두 여기서 조회한다(fleetData).
   useEffect(() => {
     if (!mapReady) return
     const voyageLayer = voyageLayerRef.current
@@ -156,16 +158,16 @@ export default function MapView({ selectedVoyageIds }: MapViewProps) {
     let cancelled = false
     voyageLayer.clearLayers()
 
-    if (selectedVoyageIds.size > 0) {
+    if (visibleVoyageIds.size > 0) {
       import('leaflet').then((L) => {
         if (cancelled) return
 
-        for (const voyageId of selectedVoyageIds) {
-          const voyage = MOCK_VOYAGES.find((v) => v.id === voyageId)
+        for (const voyageId of visibleVoyageIds) {
+          const voyage = ALL_VOYAGES.find((v) => v.id === voyageId)
           if (!voyage) continue
-          const vessel = MOCK_VESSELS.find((v) => v.id === voyage.vesselId)
+          const vessel = ALL_VESSELS.find((v) => v.id === voyage.vesselId)
           if (!vessel) continue
-          const position: AisPosition | undefined = MOCK_POSITIONS.find((p) => p.vesselId === voyage.vesselId)
+          const position: AisPosition | undefined = ALL_POSITIONS.find((p) => p.vesselId === voyage.vesselId)
 
           const statusColor = VOYAGE_STATUS_COLORS[voyage.status]
           const displayRoute = getDisplayRoute(voyage)
@@ -218,7 +220,14 @@ export default function MapView({ selectedVoyageIds }: MapViewProps) {
     return () => {
       cancelled = true
     }
-  }, [mapReady, selectedVoyageIds])
+  }, [mapReady, visibleVoyageIds])
+
+  // 필터 리셋(7.2장 resetMapView) — 줌 델타가 큰 이동이라 flyTo가 아닌 setView로 한 번에
+  // 전환한다(KNOWN_PITFALLS.md 2.7). resetToken은 9.9장 MapFocusTarget과 같은 token 패턴.
+  useEffect(() => {
+    if (!mapReady || resetToken === 0) return
+    mapRef.current?.setView([20, 100], 3, { animate: true })
+  }, [mapReady, resetToken])
 
   return (
     <>

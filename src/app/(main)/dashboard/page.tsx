@@ -6,7 +6,9 @@ import { PageHeader } from '@/shared/components/PageHeader'
 import { useLanguage } from '@/features/i18n/LanguageContext'
 import { SummaryCards } from '@/features/dashboard/SummaryCards'
 import { FleetGaugeCard } from '@/features/dashboard/FleetGaugeCard'
+import { FilterBar } from '@/features/dashboard/FilterBar'
 import { computeFleetGauges, getActiveVoyages } from '@/features/dashboard/fleetGauge'
+import { computeDestinations, computeVisibleVoyageIds, type QuickFilterKey } from '@/features/dashboard/filters'
 import { MOCK_VOYAGES } from '@/mocks/voyages'
 import { MOCK_VESSELS } from '@/mocks/vessels'
 import { MOCK_POSITIONS } from '@/mocks/positions'
@@ -17,6 +19,10 @@ const MapView = dynamic(() => import('@/features/dashboard/MapView'), { ssr: fal
 export default function DashboardPage() {
   const { t } = useLanguage()
   const [selectedVoyageIds, setSelectedVoyageIds] = useState<Set<string>>(new Set())
+  const [activeFilters, setActiveFilters] = useState<Set<QuickFilterKey>>(new Set())
+  const [destinationFilter, setDestinationFilter] = useState<string | null>(null)
+  const [gaugesOpen, setGaugesOpen] = useState(false)
+  const [resetMapToken, setResetMapToken] = useState(0)
 
   const activeVoyages = useMemo(() => getActiveVoyages(MOCK_VOYAGES), [])
   const gauges = useMemo(() => computeFleetGauges(MOCK_VOYAGES, MOCK_VESSELS, MOCK_POSITIONS), [])
@@ -30,6 +36,39 @@ export default function DashboardPage() {
     setSelectedVoyageIds(new Set(activeVoyages.map((v) => v.id)))
   }, [activeVoyages])
 
+  const destinations = useMemo(() => computeDestinations(activeFilters), [activeFilters])
+  const totalVesselCount = useMemo(() => destinations.reduce((sum, d) => sum + d.count, 0), [destinations])
+
+  const visibleVoyageIds = useMemo(
+    () => computeVisibleVoyageIds({ filters: activeFilters, destinationFilter, destinations, selectedVoyageIds }),
+    [activeFilters, destinationFilter, destinations, selectedVoyageIds],
+  )
+
+  // DASHBOARD.md 7.2장 — wasActive는 업데이터 바깥에서 먼저 읽는다. 업데이터 안에서 다른
+  // state의 setter를 호출하면 부수효과가 중복 실행돼 "필터가 간헐적으로 안 먹는" 버그가 난다
+  // (KNOWN_PITFALLS.md 1.3).
+  function toggleQuickFilter(key: QuickFilterKey) {
+    const wasActive = activeFilters.has(key)
+
+    setActiveFilters((prev) => {
+      const next = new Set(prev)
+      if (wasActive) {
+        next.delete(key)
+      } else {
+        next.add(key)
+        if (key === 'issues') next.delete('ports')
+        if (key === 'ports') next.delete('issues')
+      }
+      return next
+    })
+
+    if (key === 'my') {
+      if (!wasActive) setSelectedVoyageIds(new Set(activeVoyages.map((v) => v.id)))
+      setGaugesOpen((v) => !v)
+    }
+    setResetMapToken((t) => t + 1)
+  }
+
   return (
     <div className="flex min-h-full flex-col">
       <PageHeader title={t.dashboard.title} subtitle={t.dashboard.subtitle} />
@@ -37,13 +76,29 @@ export default function DashboardPage() {
 
       {/* 함대 게이지 카드 — 활성 항차 1건 이상일 때만 렌더링 (4장) */}
       {activeVoyages.length > 0 && (
-        <FleetGaugeCard rows={gauges} selectedVoyageIds={selectedVoyageIds} setSelectedVoyageIds={setSelectedVoyageIds} />
+        <FleetGaugeCard
+          rows={gauges}
+          selectedVoyageIds={selectedVoyageIds}
+          setSelectedVoyageIds={setSelectedVoyageIds}
+          open={gaugesOpen}
+          onToggleOpen={() => setGaugesOpen((v) => !v)}
+        />
       )}
+
+      <FilterBar
+        activeFilters={activeFilters}
+        onToggleFilter={toggleQuickFilter}
+        destinations={destinations}
+        totalVesselCount={totalVesselCount}
+        visibleVesselCount={visibleVoyageIds.size}
+        destinationFilter={destinationFilter}
+        onSelectDestination={setDestinationFilter}
+      />
 
       {/* 지도 영역 (9장 MapView) — 최소 500px 보장, 상단 블록이 늘어나도 짜부라지지 않는다.
           relative는 MapView 내부의 absolute inset-0 컨테이너가 크기를 잡는 기준이 된다. */}
       <div className="relative min-h-[500px] flex-1">
-        <MapView selectedVoyageIds={selectedVoyageIds} />
+        <MapView visibleVoyageIds={visibleVoyageIds} resetToken={resetMapToken} />
       </div>
     </div>
   )

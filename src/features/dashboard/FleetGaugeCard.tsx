@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, type Dispatch, type KeyboardEvent, type SetStateAction } from 'react'
+import type { Dispatch, KeyboardEvent, SetStateAction } from 'react'
 import { Fuel, ChevronDown, Leaf, TrendingDown, LocateFixed, Gauge, BrainCircuit } from 'lucide-react'
 import { VoyageBadge } from '@/shared/components/StatusBadge'
 import { HorizontalGauge } from '@/shared/components/HorizontalGauge'
@@ -152,13 +152,15 @@ export function FleetGaugeCard({
   rows,
   selectedVoyageIds,
   setSelectedVoyageIds,
+  open,
+  onToggleOpen,
 }: {
   rows: FleetGaugeRow[]
   selectedVoyageIds: Set<string>
   setSelectedVoyageIds: Dispatch<SetStateAction<Set<string>>>
+  open: boolean
+  onToggleOpen: () => void
 }) {
-  const [open, setOpen] = useState(false)
-
   const selectedCount = rows.filter((r) => selectedVoyageIds.has(r.voyage.id)).length
 
   function toggleVoyage(voyageId: string) {
@@ -182,7 +184,7 @@ export function FleetGaugeCard({
     <div className="shrink-0 border-b border-slate-200 bg-white px-6 py-2 dark:border-slate-800 dark:bg-slate-900">
       <FleetGaugeHeader
         open={open}
-        onToggleOpen={() => setOpen((v) => !v)}
+        onToggleOpen={onToggleOpen}
         selectedCount={selectedCount}
         total={rows.length}
         onSelectAll={selectAll}
