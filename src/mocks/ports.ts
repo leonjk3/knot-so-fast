@@ -47,3 +47,9 @@ export function findPort(code: string): Port | undefined {
 export function formatPortLabel(port: Port): string {
   return `${port.name} (${port.nameEn})`
 }
+
+// "부산 (Busan)" 형태의 표시 문자열에서 코드를 역으로 찾는다. 못 찾으면 undefined —
+// 호출부가 항구명 첫 토큰으로 폴백한다(DASHBOARD.md 6.3장).
+export function getPortCode(label: string): string | undefined {
+  return PORTS.find((p) => formatPortLabel(p) === label)?.code
+}
