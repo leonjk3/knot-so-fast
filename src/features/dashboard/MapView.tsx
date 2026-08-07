@@ -9,6 +9,7 @@ import { MOCK_DANGER_ZONES, MOCK_TYPHOONS, MOCK_REGIONAL_ISSUES, MOCK_WEATHER_PO
 import { findPort } from '@/mocks/ports'
 import { ALL_VOYAGES, ALL_VESSELS, ALL_POSITIONS } from './fleetData'
 import type { LayerVisibility } from './filters'
+import type { MapFocusTarget } from './mapFocus'
 import { WORLD_BOUNDS, wrapLng, wrapRouteSegments } from './mapSeam'
 import { getDisplayRoute, computeActualRoute, buildVesselMarkerIcon, buildVesselPopupHtml } from './voyageLayer'
 import { aggregateByPort, buildPortMarkerHtml, buildPortPopupHtml } from './portLayer'
@@ -46,14 +47,13 @@ function waitForLeafletCss(): Promise<void> {
 interface MapViewProps {
   // 필터 바(7.6장)를 거쳐 파생된, 실제로 지도에 그려야 할 항차 id 집합
   visibleVoyageIds: Set<string>
-  // 값이 바뀔 때마다(0은 초기값이라 무시) 기본 시야로 복귀한다 — 9.9장 MapFocusTarget의
-  // token 패턴을 그대로 따른 최소 구현
-  resetToken?: number
   // 필터 바(7.3장)에서 파생된 레이어 표시 여부
   layers: LayerVisibility
+  // 리스트·게이지 카드 등 외부에서 지도를 이동시키는 요청 (9.9장)
+  focusTarget?: MapFocusTarget | null
 }
 
-export default function MapView({ visibleVoyageIds, resetToken = 0, layers }: MapViewProps) {
+export default function MapView({ visibleVoyageIds, layers, focusTarget }: MapViewProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<LeafletMap | null>(null)
   const voyageLayerRef = useRef<LayerGroup | null>(null)
@@ -358,12 +358,28 @@ export default function MapView({ visibleVoyageIds, resetToken = 0, layers }: Ma
     }
   }, [mapReady, layers.dangerZones, layers.typhoon, layers.issues, layers.weather])
 
-  // 필터 리셋(7.2장 resetMapView) — 줌 델타가 큰 이동이라 flyTo가 아닌 setView로 한 번에
-  // 전환한다(KNOWN_PITFALLS.md 2.7). resetToken은 9.9장 MapFocusTarget과 같은 token 패턴.
+  // 지도 이동(9.9장) — direct면 setView(줌 델타가 큰 이동, KNOWN_PITFALLS.md 2.7), 아니면
+  // flyTo. 의존성은 token뿐이다 — 좌표가 같아도 같은 지점을 다시 클릭하면 재실행되어야 한다.
   useEffect(() => {
-    if (!mapReady || resetToken === 0) return
-    mapRef.current?.setView([20, 100], 3, { animate: true })
-  }, [mapReady, resetToken])
+    if (!mapReady || !focusTarget) return
+    const map = mapRef.current
+    if (!map) return
+
+    const { lat, lng, zoom, direct, marker } = focusTarget
+    if (direct) {
+      map.setView([lat, wrapLng(lng)], zoom, { animate: true })
+    } else {
+      map.flyTo([lat, wrapLng(lng)], zoom, { duration: 0.8 })
+    }
+
+    if (marker) {
+      const markerMap = marker.kind === 'issue' ? issueMarkersRef.current : portMarkersRef.current
+      map.once('moveend', () => {
+        markerMap.get(marker.id)?.openPopup()
+      })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mapReady, focusTarget?.token])
 
   return (
     <>

@@ -8,6 +8,9 @@ import { cn } from '@/shared/utils/cn'
 import { formatNumber, formatShortDateTime } from '@/shared/utils/format'
 import { getPortCode } from '@/mocks/ports'
 import type { FleetGaugeRow } from './fleetGauge'
+import type { MapFocusTarget } from './mapFocus'
+
+type FocusFn = (target: Omit<MapFocusTarget, 'token'>) => void
 
 // ── 헤더 행 (6.2) ────────────────────────────────────────────
 function FleetGaugeHeader({
@@ -56,7 +59,17 @@ function FleetGaugeHeader({
 }
 
 // ── 선박 카드 (6.3) ──────────────────────────────────────────
-function VesselGaugeCard({ row, selected, onToggle }: { row: FleetGaugeRow; selected: boolean; onToggle: () => void }) {
+function VesselGaugeCard({
+  row,
+  selected,
+  onToggle,
+  onFocusMap,
+}: {
+  row: FleetGaugeRow
+  selected: boolean
+  onToggle: () => void
+  onFocusMap: FocusFn
+}) {
   const { vessel, voyage, position, fuelTonPerDay, fuelCapacityPercent, co2TonPerDay, co2FleetPercent, fuelSavingPercent } = row
   const depCode = getPortCode(voyage.departurePort) ?? voyage.departurePort.split(' ')[0]
   const arrCode = getPortCode(voyage.arrivalPort) ?? voyage.arrivalPort.split(' ')[0]
@@ -88,8 +101,10 @@ function VesselGaugeCard({ row, selected, onToggle }: { row: FleetGaugeRow; sele
         <button
           type="button"
           title="현재 위치로 이동"
-          // 지도 focus(9.9장)는 L3에서 연결 — 지금은 표시만
-          onClick={(e) => e.stopPropagation()}
+          onClick={(e) => {
+            e.stopPropagation()
+            onFocusMap({ lat: row.position.lat, lng: row.position.lng, zoom: 8 })
+          }}
           className="shrink-0 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
         >
           <LocateFixed className="h-3.5 w-3.5" />
@@ -154,12 +169,14 @@ export function FleetGaugeCard({
   setSelectedVoyageIds,
   open,
   onToggleOpen,
+  onFocusMap,
 }: {
   rows: FleetGaugeRow[]
   selectedVoyageIds: Set<string>
   setSelectedVoyageIds: Dispatch<SetStateAction<Set<string>>>
   open: boolean
   onToggleOpen: () => void
+  onFocusMap: FocusFn
 }) {
   const selectedCount = rows.filter((r) => selectedVoyageIds.has(r.voyage.id)).length
 
@@ -199,6 +216,7 @@ export function FleetGaugeCard({
               row={row}
               selected={selectedVoyageIds.has(row.voyage.id)}
               onToggle={() => toggleVoyage(row.voyage.id)}
+              onFocusMap={onFocusMap}
             />
           ))}
         </div>

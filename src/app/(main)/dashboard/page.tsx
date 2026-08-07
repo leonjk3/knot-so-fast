@@ -1,14 +1,16 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import dynamic from 'next/dynamic'
 import { PageHeader } from '@/shared/components/PageHeader'
 import { useLanguage } from '@/features/i18n/LanguageContext'
 import { SummaryCards } from '@/features/dashboard/SummaryCards'
 import { FleetGaugeCard } from '@/features/dashboard/FleetGaugeCard'
 import { FilterBar } from '@/features/dashboard/FilterBar'
+import { ListPanel } from '@/features/dashboard/ListPanel'
 import { computeFleetGauges, getActiveVoyages } from '@/features/dashboard/fleetGauge'
 import { computeDestinations, computeVisibleVoyageIds, layersForFilters, type QuickFilterKey } from '@/features/dashboard/filters'
+import type { MapFocusTarget } from '@/features/dashboard/mapFocus'
 import { MOCK_VOYAGES } from '@/mocks/voyages'
 import { MOCK_VESSELS } from '@/mocks/vessels'
 import { MOCK_POSITIONS } from '@/mocks/positions'
@@ -22,7 +24,14 @@ export default function DashboardPage() {
   const [activeFilters, setActiveFilters] = useState<Set<QuickFilterKey>>(new Set())
   const [destinationFilter, setDestinationFilter] = useState<string | null>(null)
   const [gaugesOpen, setGaugesOpen] = useState(false)
-  const [resetMapToken, setResetMapToken] = useState(0)
+  const [focusTarget, setFocusTarget] = useState<MapFocusTarget | null>(null)
+  const focusTokenRef = useRef(0)
+
+  // 지도 이동(9.9장) — 매 호출마다 token을 증가시켜, 같은 좌표를 다시 클릭해도 반응하게 한다.
+  const focusMap = useCallback((target: Omit<MapFocusTarget, 'token'>) => {
+    focusTokenRef.current += 1
+    setFocusTarget({ ...target, token: focusTokenRef.current })
+  }, [])
 
   const activeVoyages = useMemo(() => getActiveVoyages(MOCK_VOYAGES), [])
   const gauges = useMemo(() => computeFleetGauges(MOCK_VOYAGES, MOCK_VESSELS, MOCK_POSITIONS), [])
@@ -67,7 +76,8 @@ export default function DashboardPage() {
       if (!wasActive) setSelectedVoyageIds(new Set(activeVoyages.map((v) => v.id)))
       setGaugesOpen((v) => !v)
     }
-    setResetMapToken((t) => t + 1)
+    // 필터 리셋 — 줌 델타가 큰 이동이라 direct(setView)로 기본 시야에 복귀한다(9.9장 호출 지점 표).
+    focusMap({ lat: 20, lng: 100, zoom: 3, direct: true })
   }
 
   return (
@@ -83,6 +93,7 @@ export default function DashboardPage() {
           setSelectedVoyageIds={setSelectedVoyageIds}
           open={gaugesOpen}
           onToggleOpen={() => setGaugesOpen((v) => !v)}
+          onFocusMap={focusMap}
         />
       )}
 
@@ -96,10 +107,13 @@ export default function DashboardPage() {
         onSelectDestination={setDestinationFilter}
       />
 
+      {/* 이슈·항구 리스트 패널 — "이슈" 또는 "항구" 필터가 켜져 있을 때만 렌더링 (8장) */}
+      <ListPanel activeFilters={activeFilters} onFocusMap={focusMap} />
+
       {/* 지도 영역 (9장 MapView) — 최소 500px 보장, 상단 블록이 늘어나도 짜부라지지 않는다.
           relative는 MapView 내부의 absolute inset-0 컨테이너가 크기를 잡는 기준이 된다. */}
       <div className="relative min-h-[500px] flex-1">
-        <MapView visibleVoyageIds={visibleVoyageIds} resetToken={resetMapToken} layers={layers} />
+        <MapView visibleVoyageIds={visibleVoyageIds} layers={layers} focusTarget={focusTarget} />
       </div>
     </div>
   )

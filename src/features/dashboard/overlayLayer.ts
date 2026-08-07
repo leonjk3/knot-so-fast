@@ -49,6 +49,18 @@ const ISSUE_TYPE_COLORS: Record<RegionalIssue['type'], string> = {
   canal_control: '#6366f1',
 }
 
+// DASHBOARD.md 8.1장 — 유형 라벨(리스트 패널에서 사용)
+const ISSUE_TYPE_LABELS: Record<RegionalIssue['type'], string> = {
+  piracy: '해적',
+  port_congestion: '항만 혼잡',
+  geopolitical: '지정학적 리스크',
+  canal_control: '운하 통제',
+}
+
+export function issueTypeLabel(type: RegionalIssue['type']): string {
+  return ISSUE_TYPE_LABELS[type]
+}
+
 // 유형별 흰색 SVG 아이콘 — 정확한 형태는 명세에 없어 의미가 통하는 최소 아이콘으로 채움
 const ISSUE_TYPE_ICONS: Record<RegionalIssue['type'], string> = {
   piracy:
