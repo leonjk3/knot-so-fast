@@ -1,3 +1,5 @@
+import type { VoyageStatus } from '@/shared/types'
+
 // 선사 자사명 — 등록 시 Vessel.company에 자동 고정되는 값 (VESSEL.md 3.1장)
 export const OWN_COMPANY_NAME = 'KSF Line'
 
@@ -8,3 +10,12 @@ export const CARBON_VESSEL_ID_KEY = 'ksf:carbon-vessel-id'             // 에코
 
 // SWR 영속 캐시 localStorage 키 (BOOTSTRAP.md 9.2장, 방식 B로 전환할 때만 사용)
 export const SWR_CACHE_KEY = 'ksf:swr-cache'
+
+// 항차 상태 마커 색 — 지도·캘린더·게이지 공통 (DASHBOARD.md 13장)
+export const VOYAGE_STATUS_COLORS: Record<VoyageStatus, string> = {
+  underway: '#3b82f6',
+  delayed: '#ef4444',
+  preparing: '#94a3b8',
+  completed: '#22c55e',
+  cancelled: '#64748b',
+}

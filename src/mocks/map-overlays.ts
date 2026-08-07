@@ -170,3 +170,26 @@ export const MOCK_DANGER_ZONES: DangerZone[] = [
     color: '#8b5cf6',
   },
 ]
+
+export interface WeatherPoint {
+  name: string
+  lat: number
+  lng: number
+  windSpeed: number
+  windDir: number
+  waveHeight: number
+}
+
+// 실시간 API(Open-Meteo) 미연동 시 사용하는 고정 좌표 8지점.
+// 좌표는 DASHBOARD.md 3.5장 표 그대로이며, 풍속·풍향·파고는 명세가 지시한 대로
+// 풍속 3~18 m/s · 파고 0.5~4.5 m 범위 안에서 임의로 채운 값이다.
+export const MOCK_WEATHER_POINTS: WeatherPoint[] = [
+  { name: '아라비아해', lat: 15, lng: 65, windSpeed: 11.2, windDir: 220, waveHeight: 2.3 },
+  { name: '말라카 해협', lat: 3, lng: 104, windSpeed: 6.5, windDir: 160, waveHeight: 1.1 },
+  { name: '남중국해', lat: 12, lng: 118, windSpeed: 9.8, windDir: 45, waveHeight: 1.8 },
+  { name: '서태평양', lat: 25, lng: 145, windSpeed: 14.3, windDir: 90, waveHeight: 3.2 },
+  { name: '홍해', lat: 15, lng: 42, windSpeed: 8.7, windDir: 300, waveHeight: 1.4 },
+  { name: '지중해', lat: 36, lng: 24, windSpeed: 7.2, windDir: 250, waveHeight: 1.0 },
+  { name: '희망봉', lat: -35, lng: 20, windSpeed: 17.5, windDir: 280, waveHeight: 4.2 },
+  { name: '북대서양', lat: 45, lng: -30, windSpeed: 13.6, windDir: 240, waveHeight: 3.6 },
+]
