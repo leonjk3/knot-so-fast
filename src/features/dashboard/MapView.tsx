@@ -1,13 +1,18 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import type { Map as LeafletMap, LayerGroup } from 'leaflet'
+import type { Map as LeafletMap, LayerGroup, Marker } from 'leaflet'
 import type { AisPosition } from '@/shared/types'
 import { OWN_COMPANY_NAME, VOYAGE_STATUS_COLORS } from '@/shared/constants'
 import { formatDateTime } from '@/shared/utils/format'
+import { MOCK_DANGER_ZONES, MOCK_TYPHOONS, MOCK_REGIONAL_ISSUES, MOCK_WEATHER_POINTS } from '@/mocks/map-overlays'
+import { findPort } from '@/mocks/ports'
 import { ALL_VOYAGES, ALL_VESSELS, ALL_POSITIONS } from './fleetData'
+import type { LayerVisibility } from './filters'
 import { WORLD_BOUNDS, wrapLng, wrapRouteSegments } from './mapSeam'
 import { getDisplayRoute, computeActualRoute, buildVesselMarkerIcon, buildVesselPopupHtml } from './voyageLayer'
+import { aggregateByPort, buildPortMarkerHtml, buildPortPopupHtml } from './portLayer'
+import { buildTyphoonMarkerHtml, buildTyphoonPopupHtml, typhoonColor, buildIssueMarkerHtml, buildIssuePopupHtml, buildWeatherCardHtml } from './overlayLayer'
 
 // 오류를 200 응답 이미지로 반환하는 타일 서버(OpenSeaMap 등) 대비 — 1×1 투명 PNG
 const ERROR_TILE_URL =
@@ -44,19 +49,25 @@ interface MapViewProps {
   // 값이 바뀔 때마다(0은 초기값이라 무시) 기본 시야로 복귀한다 — 9.9장 MapFocusTarget의
   // token 패턴을 그대로 따른 최소 구현
   resetToken?: number
+  // 필터 바(7.3장)에서 파생된 레이어 표시 여부
+  layers: LayerVisibility
 }
 
-export default function MapView({ visibleVoyageIds, resetToken = 0 }: MapViewProps) {
+export default function MapView({ visibleVoyageIds, resetToken = 0, layers }: MapViewProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<LeafletMap | null>(null)
   const voyageLayerRef = useRef<LayerGroup | null>(null)
   const portLayerRef = useRef<LayerGroup | null>(null)
   const overlayLayerRef = useRef<LayerGroup | null>(null)
   const resizeHandlerRef = useRef<(() => void) | null>(null)
+  const portMarkersRef = useRef<Map<string, Marker>>(new Map())
+  const issueMarkersRef = useRef<Map<string, Marker>>(new Map())
   const [mapReady, setMapReady] = useState(false)
 
   useEffect(() => {
     let active = true
+    const portMarkers = portMarkersRef.current
+    const issueMarkers = issueMarkersRef.current
 
     async function init() {
       if (!containerRef.current) return
@@ -145,6 +156,8 @@ export default function MapView({ visibleVoyageIds, resetToken = 0 }: MapViewPro
       voyageLayerRef.current = null
       portLayerRef.current = null
       overlayLayerRef.current = null
+      portMarkers.clear()
+      issueMarkers.clear()
     }
   }, [])
 
@@ -221,6 +234,129 @@ export default function MapView({ visibleVoyageIds, resetToken = 0 }: MapViewPro
       cancelled = true
     }
   }, [mapReady, visibleVoyageIds])
+
+  // 항구 레이어(9.6장) — 선박 필터·선택과 무관하게 항상 전체 항차 기준으로 집계한다.
+  useEffect(() => {
+    if (!mapReady) return
+    const portLayer = portLayerRef.current
+    if (!portLayer) return
+
+    let cancelled = false
+    portLayer.clearLayers()
+    portMarkersRef.current.clear()
+
+    if (layers.ports) {
+      import('leaflet').then((L) => {
+        if (cancelled) return
+
+        const aggregates = aggregateByPort(ALL_VOYAGES, ALL_VESSELS)
+        for (const [code, agg] of aggregates) {
+          const port = findPort(code)
+          if (!port) continue
+
+          const totalCount = agg.berthed.length + agg.departing.length + agg.arriving.length
+          const icon = L.divIcon({
+            html: buildPortMarkerHtml(totalCount),
+            className: '',
+            iconSize: [30, 30],
+            iconAnchor: [15, 15],
+          })
+          const marker = L.marker([port.lat, wrapLng(port.lng)], { icon }).addTo(portLayer)
+          marker.bindPopup(buildPortPopupHtml(code, agg), { minWidth: 220, maxWidth: 260 })
+          portMarkersRef.current.set(code, marker)
+        }
+      })
+    }
+
+    return () => {
+      cancelled = true
+    }
+  }, [mapReady, layers.ports])
+
+  // 오버레이 레이어(9.8장) — 위험구역·태풍·지역 이슈·기상 카드. issues 플래그 하나로
+  // 위험구역·태풍·이슈가 함께 켜지고 꺼진다(7.3장 — 태풍·위험구역은 "이슈"에 편입).
+  useEffect(() => {
+    if (!mapReady) return
+    const overlayLayer = overlayLayerRef.current
+    if (!overlayLayer) return
+
+    let cancelled = false
+    overlayLayer.clearLayers()
+    issueMarkersRef.current.clear()
+
+    import('leaflet').then((L) => {
+      if (cancelled) return
+
+      if (layers.dangerZones) {
+        for (const zone of MOCK_DANGER_ZONES) {
+          L.circle([zone.center[0], wrapLng(zone.center[1])], {
+            radius: zone.radiusKm * 1000,
+            color: zone.color,
+            fillColor: zone.color,
+            fillOpacity: 0.08,
+            weight: 2,
+            dashArray: '8,4',
+          })
+            .bindTooltip(zone.label, { sticky: true })
+            .addTo(overlayLayer)
+        }
+      }
+
+      if (layers.typhoon) {
+        for (const t of MOCK_TYPHOONS) {
+          const color = typhoonColor(t.intensity)
+          const latLng: [number, number] = [t.lat, wrapLng(t.lng)]
+
+          L.circle(latLng, {
+            radius: t.radiusKm * 1000,
+            color,
+            fillColor: color,
+            fillOpacity: 0.07,
+            weight: 2,
+            dashArray: '10,5',
+          }).addTo(overlayLayer)
+
+          const icon = L.divIcon({
+            html: buildTyphoonMarkerHtml(t.intensity),
+            className: '',
+            iconSize: [36, 36],
+            iconAnchor: [18, 18],
+          })
+          L.marker(latLng, { icon }).addTo(overlayLayer).bindPopup(buildTyphoonPopupHtml(t), { minWidth: 180 })
+        }
+      }
+
+      if (layers.issues) {
+        for (const issue of MOCK_REGIONAL_ISSUES) {
+          const icon = L.divIcon({
+            html: buildIssueMarkerHtml(issue.type),
+            className: '',
+            iconSize: [36, 36],
+            iconAnchor: [18, 18],
+          })
+          const marker = L.marker([issue.lat, wrapLng(issue.lng)], { icon }).addTo(overlayLayer)
+          marker.bindPopup(buildIssuePopupHtml(issue), { minWidth: 200 })
+          issueMarkersRef.current.set(issue.id, marker)
+        }
+      }
+
+      if (layers.weather) {
+        for (const w of MOCK_WEATHER_POINTS) {
+          const icon = L.divIcon({
+            html: buildWeatherCardHtml(w.windSpeed, w.windDir, w.waveHeight, w.name),
+            className: '',
+            iconSize: [0, 0],
+            iconAnchor: [0, 0],
+          })
+          L.marker([w.lat, wrapLng(w.lng)], { icon, pane: 'weatherPane' }).addTo(overlayLayer)
+        }
+      }
+    })
+
+    return () => {
+      cancelled = true
+    }
+  }, [mapReady, layers.dangerZones, layers.typhoon, layers.issues, layers.weather])
 
   // 필터 리셋(7.2장 resetMapView) — 줌 델타가 큰 이동이라 flyTo가 아닌 setView로 한 번에
   // 전환한다(KNOWN_PITFALLS.md 2.7). resetToken은 9.9장 MapFocusTarget과 같은 token 패턴.
