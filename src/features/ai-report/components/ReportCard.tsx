@@ -24,16 +24,29 @@ import {
   CalendarCheck,
   Fuel,
   Leaf,
+  TrendingUp,
+  TrendingDown,
+  Minus,
+  MapPin,
   type LucideIcon,
 } from 'lucide-react'
 import { useLanguage } from '@/features/i18n/LanguageContext'
 import { RiskBadge } from '@/shared/components/StatusBadge'
 import { formatDateTime, formatNumber } from '@/shared/utils/format'
 import { cn } from '@/shared/utils/cn'
-import { computeSpeedPlan, computeVoyageProgress, portShortName } from '@/features/ai-report/lib/calc'
+import {
+  computeSpeedPlan,
+  computeVoyageProgress,
+  nearbyIssues,
+  portShortName,
+  remainingRoute,
+} from '@/features/ai-report/lib/calc'
 import { StatCard } from '@/features/ai-report/components/StatCard'
 import { ProbabilityGauge } from '@/features/ai-report/components/ProbabilityGauge'
 import { VoyageProgressLine } from '@/features/ai-report/components/VoyageProgressLine'
+import { ReportWeatherStats } from '@/features/ai-report/components/ReportWeatherStats'
+import { getPortCongestion, congestionLevel, type CongestionTrend } from '@/mocks/port-congestion'
+import { MOCK_REGIONAL_ISSUES } from '@/mocks/map-overlays'
 import type { AisPosition, EcoSpeedReport, RiskItem, Vessel, Voyage } from '@/shared/types'
 
 const RISK_CATEGORY_ICON: Record<RiskItem['category'], LucideIcon> = {
@@ -72,6 +85,61 @@ function categoryLabel(t: ReturnType<typeof useLanguage>['t'], category: RiskIte
     case 'mechanical':
       return t.aiReport.catMechanical
   }
+}
+
+const CONGESTION_ANCHOR_COLOR: Record<'high' | 'medium' | 'low', string> = {
+  high: 'text-red-500',
+  medium: 'text-yellow-500',
+  low: 'text-green-500',
+}
+
+const TREND_ICON: Record<CongestionTrend, LucideIcon> = {
+  rising: TrendingUp,
+  stable: Minus,
+  falling: TrendingDown,
+}
+
+function PortCongestionCard({ arrivalPort }: { arrivalPort: string }) {
+  const { t } = useLanguage()
+  const congestion = getPortCongestion(arrivalPort)
+  const level = congestionLevel(congestion.congestionScore)
+  const levelLabel =
+    level === 'high' ? t.aiReport.congestionHigh : level === 'medium' ? t.aiReport.congestionMedium : t.aiReport.congestionLow
+  const trendLabel =
+    congestion.trend === 'rising'
+      ? t.aiReport.trendRising
+      : congestion.trend === 'falling'
+        ? t.aiReport.trendFalling
+        : t.aiReport.trendStable
+  const TrendIcon = TREND_ICON[congestion.trend]
+
+  return (
+    <div className="rounded-lg border border-slate-200 bg-white px-4 py-3 dark:border-slate-700 dark:bg-slate-800">
+      <span className="flex items-center gap-1.5 text-sm text-slate-500 dark:text-slate-400">
+        <Anchor className={cn('h-4 w-4', CONGESTION_ANCHOR_COLOR[level])} />
+        {t.aiReport.portCongestionTitle}
+      </span>
+
+      <div className="mt-1 flex items-baseline gap-2">
+        <span className={cn('text-xl font-bold', CONGESTION_ANCHOR_COLOR[level])}>{levelLabel}</span>
+        <span className="text-sm text-slate-400">{congestion.congestionScore}/100</span>
+      </div>
+
+      <div className="mt-2 flex items-center justify-between text-sm text-slate-500 dark:text-slate-400">
+        <span>
+          {t.aiReport.avgWaitHours} {formatNumber(congestion.avgWaitHours)}h
+        </span>
+        <span className="flex items-center gap-1">
+          <TrendIcon className="h-3.5 w-3.5" />
+          {trendLabel}
+        </span>
+      </div>
+
+      <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+        {t.aiReport.berthAvailability} {t.aiReport.berthCount(String(congestion.berthsAvailable), String(congestion.berthsTotal))}
+      </p>
+    </div>
+  )
 }
 
 interface ReportCardProps {
@@ -119,6 +187,14 @@ export function ReportCard({ report, voyage, vessel, position, defaultOpen = fal
 
   const canGuaranteeDeadline = speedPlan.recommendedSpeedProbability.percent === 100
   const showSwitchHint = canGuaranteeDeadline && speedPlan.currentSpeedProbability.percent < 100
+
+  const arrivalPos = voyage.plannedRoute[voyage.plannedRoute.length - 1]
+  const currentPos = position ? { lat: position.lat, lng: position.lng } : voyage.plannedRoute[0]
+
+  const nearbyRegionalIssues = useMemo(
+    () => nearbyIssues(remainingRoute(voyage.plannedRoute, position), MOCK_REGIONAL_ISSUES, 600),
+    [voyage.plannedRoute, position],
+  )
 
   return (
     <div
@@ -336,6 +412,17 @@ export function ReportCard({ report, voyage, vessel, position, defaultOpen = fal
             />
           </div>
 
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <PortCongestionCard arrivalPort={voyage.arrivalPort} />
+            <ReportWeatherStats
+              currentLabel={t.aiReport.currentAreaWeather}
+              currentPos={currentPos}
+              arrivalLabel={t.aiReport.arrivalPortWeather}
+              arrivalPos={arrivalPos}
+              refreshToken={0}
+            />
+          </div>
+
           <div>
             <h3 className="mb-2 text-base font-semibold">{t.aiReport.reasoning}</h3>
             <div className="rounded-lg bg-slate-50 px-4 py-3 text-sm whitespace-pre-line text-slate-700 dark:bg-slate-800/60 dark:text-slate-300">
@@ -369,6 +456,36 @@ export function ReportCard({ report, voyage, vessel, position, defaultOpen = fal
                 )
               })}
             </div>
+          </div>
+
+          <div>
+            <h3 className="mb-2 text-base font-semibold">{t.aiReport.regionalIssuesTitle}</h3>
+            {nearbyRegionalIssues.length === 0 ? (
+              <p className="text-sm text-slate-500 dark:text-slate-400">{t.aiReport.noNearbyIssues}</p>
+            ) : (
+              <div className="space-y-2">
+                {nearbyRegionalIssues.map((issue) => (
+                  <div
+                    key={issue.id}
+                    className="rounded-lg border border-slate-200 px-4 py-3 dark:border-slate-700"
+                  >
+                    <div className="flex items-start gap-2">
+                      <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="font-semibold">{issue.title}</span>
+                          <RiskBadge level={issue.severity} />
+                        </div>
+                        <p className="mt-1 text-sm text-slate-500">{issue.description}</p>
+                        <p className="mt-1 text-xs text-slate-400">
+                          {t.aiReport.source}: {issue.source}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       )}
