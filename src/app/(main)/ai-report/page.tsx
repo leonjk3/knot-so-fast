@@ -7,6 +7,7 @@ import { ReportCard } from '@/features/ai-report/components/ReportCard'
 import { MOCK_REPORTS } from '@/mocks/reports'
 import { MOCK_VOYAGES } from '@/mocks/voyages'
 import { MOCK_VESSELS } from '@/mocks/vessels'
+import { MOCK_POSITIONS } from '@/mocks/positions'
 
 export default function AiReportPage() {
   const { t } = useLanguage()
@@ -29,7 +30,17 @@ export default function AiReportPage() {
           const voyage = MOCK_VOYAGES.find((v) => v.id === report.voyageId)
           const vessel = voyage ? MOCK_VESSELS.find((v) => v.id === voyage.vesselId) : undefined
           if (!voyage || !vessel) return null
-          return <ReportCard key={report.id} report={report} voyage={voyage} vessel={vessel} defaultOpen={i === 0} />
+          const position = MOCK_POSITIONS.find((p) => p.vesselId === vessel.id)
+          return (
+            <ReportCard
+              key={report.id}
+              report={report}
+              voyage={voyage}
+              vessel={vessel}
+              position={position}
+              defaultOpen={i === 0}
+            />
+          )
         })}
       </div>
     </div>
