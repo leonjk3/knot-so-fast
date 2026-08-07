@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useMemo, useState, type MouseEvent } from 'react'
 import {
   Ship,
   ChevronDown,
@@ -41,6 +41,9 @@ import {
   portShortName,
   remainingRoute,
 } from '@/features/ai-report/lib/calc'
+import { categoryLabel, confidenceLabel, congestionLevelLabel, trendLabel } from '@/features/ai-report/lib/labels'
+import { exportReportPdf } from '@/features/ai-report/lib/pdf'
+import { EN_REPORT_CONTENT, EN_REGIONAL_ISSUE_CONTENT, enRiskTitle, enRiskDescription } from '@/features/ai-report/lib/en-content'
 import { StatCard } from '@/features/ai-report/components/StatCard'
 import { ProbabilityGauge } from '@/features/ai-report/components/ProbabilityGauge'
 import { VoyageProgressLine } from '@/features/ai-report/components/VoyageProgressLine'
@@ -74,19 +77,6 @@ const CONFIDENCE_TEXT: Record<'high' | 'medium' | 'low', string> = {
   low: 'text-red-600 dark:text-red-400',
 }
 
-function categoryLabel(t: ReturnType<typeof useLanguage>['t'], category: RiskItem['category']): string {
-  switch (category) {
-    case 'weather':
-      return t.aiReport.catWeather
-    case 'port':
-      return t.aiReport.catPort
-    case 'geopolitical':
-      return t.aiReport.catGeopolitical
-    case 'mechanical':
-      return t.aiReport.catMechanical
-  }
-}
-
 const CONGESTION_ANCHOR_COLOR: Record<'high' | 'medium' | 'low', string> = {
   high: 'text-red-500',
   medium: 'text-yellow-500',
@@ -103,14 +93,8 @@ function PortCongestionCard({ arrivalPort }: { arrivalPort: string }) {
   const { t } = useLanguage()
   const congestion = getPortCongestion(arrivalPort)
   const level = congestionLevel(congestion.congestionScore)
-  const levelLabel =
-    level === 'high' ? t.aiReport.congestionHigh : level === 'medium' ? t.aiReport.congestionMedium : t.aiReport.congestionLow
-  const trendLabel =
-    congestion.trend === 'rising'
-      ? t.aiReport.trendRising
-      : congestion.trend === 'falling'
-        ? t.aiReport.trendFalling
-        : t.aiReport.trendStable
+  const levelLabel = congestionLevelLabel(t, level)
+  const trend = trendLabel(t, congestion.trend)
   const TrendIcon = TREND_ICON[congestion.trend]
 
   return (
@@ -131,7 +115,7 @@ function PortCongestionCard({ arrivalPort }: { arrivalPort: string }) {
         </span>
         <span className="flex items-center gap-1">
           <TrendIcon className="h-3.5 w-3.5" />
-          {trendLabel}
+          {trend}
         </span>
       </div>
 
@@ -151,7 +135,7 @@ interface ReportCardProps {
 }
 
 export function ReportCard({ report, voyage, vessel, position, defaultOpen = false }: ReportCardProps) {
-  const { t } = useLanguage()
+  const { t, lang } = useLanguage()
   const [open, setOpen] = useState(defaultOpen)
 
   const deadlineTerm = voyage.rtaConfirmed ? 'RTA' : 'STA'
@@ -196,12 +180,78 @@ export function ReportCard({ report, voyage, vessel, position, defaultOpen = fal
     [voyage.plannedRoute, position],
   )
 
+  // 화면 표시용 mock 원문은 언어와 무관하게 항상 한국어 그대로 노출한다(§4.3⑦, 스펙에
+  // 명시된 동작). PDF 영문 모드만 §9.3 사전으로 대체한다 — jsPDF 기본 폰트가 한글을
+  // 렌더링하지 못하기 때문.
+  const pdfReasoning = lang === 'en' ? (EN_REPORT_CONTENT[report.id]?.reasoning ?? report.reasoning) : report.reasoning
+  const pdfRisks = useMemo(
+    () =>
+      lang === 'en'
+        ? report.risks.map((risk, i) => ({
+            ...risk,
+            title: enRiskTitle(report.id, i) || risk.title,
+            description: enRiskDescription(report.id, i) || risk.description,
+          }))
+        : report.risks,
+    [lang, report.id, report.risks],
+  )
+  const pdfRegionalIssues = useMemo(
+    () =>
+      lang === 'en'
+        ? nearbyRegionalIssues.map((issue) => ({
+            ...issue,
+            title: EN_REGIONAL_ISSUE_CONTENT[issue.id]?.title ?? issue.title,
+            description: EN_REGIONAL_ISSUE_CONTENT[issue.id]?.description ?? issue.description,
+          }))
+        : nearbyRegionalIssues,
+    [lang, nearbyRegionalIssues],
+  )
+
+  const [pdfGenerating, setPdfGenerating] = useState(false)
+
+  async function handleDownloadPdf(e: MouseEvent) {
+    e.stopPropagation()
+    if (pdfGenerating) return
+    setPdfGenerating(true)
+    try {
+      await exportReportPdf({
+        lang,
+        t,
+        report,
+        voyage,
+        vessel,
+        progress,
+        speedPlan,
+        currentSpeedKnots,
+        deadlineTerm,
+        congestion: getPortCongestion(voyage.arrivalPort),
+        reasoning: pdfReasoning,
+        risks: pdfRisks,
+        regionalIssues: pdfRegionalIssues,
+      })
+    } finally {
+      setPdfGenerating(false)
+    }
+  }
+
   return (
     <div
       id={`ai-report-${report.id}`}
       className="rounded-xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900"
     >
-      <button onClick={() => setOpen((v) => !v)} className="flex w-full items-center gap-4 px-5 py-4 text-left">
+      <div
+        role="button"
+        tabIndex={0}
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault()
+            setOpen((v) => !v)
+          }
+        }}
+        className="flex w-full cursor-pointer items-center gap-4 px-5 py-4 text-left"
+      >
         <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-slate-100 dark:bg-slate-700">
           <Ship className="h-5 w-5 text-[#6366f1]" />
         </span>
@@ -236,14 +286,15 @@ export function ReportCard({ report, voyage, vessel, position, defaultOpen = fal
         </div>
 
         <div className="flex shrink-0 items-center gap-1">
-          <span
-            role="button"
+          <button
+            type="button"
             title={t.aiReport.downloadPdf}
-            aria-disabled
-            className="flex h-8 w-8 cursor-not-allowed items-center justify-center rounded-full text-slate-300 dark:text-slate-600"
+            disabled={pdfGenerating}
+            onClick={handleDownloadPdf}
+            className="flex h-8 w-8 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-[#6366f1] disabled:cursor-wait disabled:opacity-60 dark:text-slate-500 dark:hover:bg-slate-800"
           >
-            <FileDown className="h-4 w-4" />
-          </span>
+            {pdfGenerating ? <RefreshCw className="h-4 w-4 animate-spin" /> : <FileDown className="h-4 w-4" />}
+          </button>
           <span
             role="button"
             title={t.aiReport.reanalyze}
@@ -254,7 +305,7 @@ export function ReportCard({ report, voyage, vessel, position, defaultOpen = fal
           </span>
           {open ? <ChevronUp className="h-4 w-4 text-slate-400" /> : <ChevronDown className="h-4 w-4 text-slate-400" />}
         </div>
-      </button>
+      </div>
 
       {open && (
         <div className="space-y-5 border-t border-slate-200 px-5 py-5 dark:border-slate-700">
@@ -326,13 +377,7 @@ export function ReportCard({ report, voyage, vessel, position, defaultOpen = fal
               probability={speedPlan.currentSpeedProbability}
               tone={voyage.rtaConfirmed ? 'status' : 'blue'}
               descLabel={t.aiReport.rtaProbabilityDesc}
-              confidenceLabel={
-                speedPlan.currentSpeedProbability.confidence === 'high'
-                  ? t.aiReport.confidenceHigh
-                  : speedPlan.currentSpeedProbability.confidence === 'medium'
-                    ? t.aiReport.confidenceMedium
-                    : t.aiReport.confidenceLow
-              }
+              confidenceLabel={confidenceLabel(t, speedPlan.currentSpeedProbability.confidence)}
               marginLabel={
                 speedPlan.currentSpeedProbability.marginHours >= 0
                   ? t.aiReport.marginBuffer(deadlineTerm, formatNumber(speedPlan.currentSpeedProbability.marginHours))
