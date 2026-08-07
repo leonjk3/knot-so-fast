@@ -12,11 +12,14 @@ import {
   computeScope3,
   computeCiiTrend,
   computeCiiSimulator,
+  computeAnchorScenario,
 } from '@/features/carbon/calc'
 import { CarbonStatCard } from '@/features/carbon/components/CarbonStatCard'
 import { CiiGauge } from '@/features/carbon/components/CiiGauge'
 import { CiiTrendChart } from '@/features/carbon/components/CiiTrendChart'
 import { CiiSimulator } from '@/features/carbon/components/CiiSimulator'
+import { AnchorCarbonChart } from '@/features/carbon/components/AnchorCarbonChart'
+import { ComparisonTable } from '@/features/carbon/components/ComparisonTable'
 
 function portShortName(label: string): string {
   return label.split(' ')[0]
@@ -45,7 +48,9 @@ export default function CarbonPage() {
         : null,
     [emissions, comparison, selectedVoyage],
   )
-  if (!selectedVoyage || !selectedVessel || !emissions || !comparison || !scope3 || !ciiTrendScores || !ciiSimulator) {
+  const anchorScenario = useMemo(() => (emissions ? computeAnchorScenario(emissions.totalCo2Ton) : null), [emissions])
+
+  if (!selectedVoyage || !selectedVessel || !emissions || !comparison || !scope3 || !ciiTrendScores || !ciiSimulator || !anchorScenario) {
     return (
       <div className="flex h-full flex-col">
         <PageHeader title={t.carbon.title} />
@@ -140,6 +145,10 @@ export default function CarbonPage() {
           <CiiTrendChart scores={ciiTrendScores} />
           <CiiSimulator sim={ciiSimulator} />
         </div>
+
+        <AnchorCarbonChart scenario={anchorScenario} />
+
+        <ComparisonTable comparison={comparison} vesselName={selectedVessel.name} />
       </div>
     </div>
   )
