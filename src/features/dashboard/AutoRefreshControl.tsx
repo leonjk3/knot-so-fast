@@ -16,10 +16,24 @@ const REFRESH_OPTIONS = [
   { value: 60, label: '1시간' },
 ]
 
+// 다른 화면(예: /schedule)에 갔다 오면 대시보드 page.tsx가 통째로 언마운트·재마운트되어
+// 컴포넌트 로컬 state가 초기화된다. localStorage에 저장해 재진입 시 복원한다.
+const STORAGE_KEY = 'ksf-dashboard-auto-refresh-minutes'
+
 export function AutoRefreshControl() {
   const router = useRouter()
   const [expanded, setExpanded] = useState(false)
   const [intervalMinutes, setIntervalMinutes] = useState(0)
+
+  // 0으로 시작한 뒤 마운트 후 1회만 동기화한다(하이드레이션 안전, Sidebar.tsx 접힘 상태와
+  // 동일한 패턴, BOOTSTRAP.md 8.2장).
+  useEffect(() => {
+    const saved = Number(localStorage.getItem(STORAGE_KEY))
+    if (REFRESH_OPTIONS.some((opt) => opt.value === saved)) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setIntervalMinutes(saved)
+    }
+  }, [])
 
   useEffect(() => {
     if (intervalMinutes === 0) return
@@ -28,7 +42,9 @@ export function AutoRefreshControl() {
   }, [intervalMinutes, router])
 
   function handleSelect(e: React.ChangeEvent<HTMLSelectElement>) {
-    setIntervalMinutes(Number(e.target.value))
+    const next = Number(e.target.value)
+    setIntervalMinutes(next)
+    localStorage.setItem(STORAGE_KEY, String(next))
     setExpanded(false)
   }
 
