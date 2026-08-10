@@ -23,7 +23,9 @@ export function HorizontalGauge({ icon: Icon, label, value, percent, colorClassN
           style={{ width: `${clamped}%` }}
         />
       </div>
-      <span className="w-12 shrink-0 text-right text-[11px] font-semibold tabular-nums text-slate-700 dark:text-slate-200">{value}</span>
+      <span className="w-12 shrink-0 truncate text-right text-[10px] font-semibold whitespace-nowrap tabular-nums text-slate-700 dark:text-slate-200">
+        {value}
+      </span>
     </div>
   )
 }
