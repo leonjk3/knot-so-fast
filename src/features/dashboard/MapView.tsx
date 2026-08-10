@@ -5,8 +5,10 @@ import type { Map as LeafletMap, LayerGroup, Marker, TileLayer } from 'leaflet'
 import type { AisPosition } from '@/shared/types'
 import { OWN_COMPANY_NAME, VOYAGE_STATUS_COLORS } from '@/shared/constants'
 import { formatDateTime } from '@/shared/utils/format'
-import { MOCK_DANGER_ZONES, MOCK_TYPHOONS, MOCK_REGIONAL_ISSUES, MOCK_WEATHER_POINTS } from '@/mocks/map-overlays'
+import { MOCK_DANGER_ZONES, MOCK_REGIONAL_ISSUES } from '@/mocks/map-overlays'
 import { findPort } from '@/mocks/ports'
+import { useMarineWeather } from './useMarineWeather'
+import { useTyphoons } from './useTyphoons'
 import { ALL_VOYAGES, ALL_VESSELS, ALL_POSITIONS } from './fleetData'
 import type { LayerVisibility } from './filters'
 import type { MapFocusTarget } from './mapFocus'
@@ -71,10 +73,14 @@ export default function MapView({ visibleVoyageIds, layers, focusTarget }: MapVi
   const portMarkersRef = useRef<Map<string, Marker>>(new Map())
   const issueMarkersRef = useRef<Map<string, Marker>>(new Map())
   const baseLayerRef = useRef<TileLayer | null>(null)
+  const radarLayerRef = useRef<TileLayer | null>(null)
+  const radarPathRef = useRef<string | null>(null)
   const [mapReady, setMapReady] = useState(false)
   const [mapLanguage, setMapLanguage] = useState<MapLanguage>('ko')
   const [mapKind, setMapKind] = useState<MapKind>('standard')
   const [legendOpen, setLegendOpen] = useState(false)
+  const weatherPoints = useMarineWeather()
+  const typhoons = useTyphoons()
 
   useEffect(() => {
     let active = true
@@ -169,6 +175,7 @@ export default function MapView({ visibleVoyageIds, layers, focusTarget }: MapVi
       portLayerRef.current = null
       overlayLayerRef.current = null
       baseLayerRef.current = null
+      radarLayerRef.current = null
       portMarkers.clear()
       issueMarkers.clear()
     }
@@ -320,7 +327,7 @@ export default function MapView({ visibleVoyageIds, layers, focusTarget }: MapVi
       }
 
       if (layers.typhoon) {
-        for (const t of MOCK_TYPHOONS) {
+        for (const t of typhoons) {
           const color = typhoonColor(t.intensity)
           const latLng: [number, number] = [t.lat, wrapLng(t.lng)]
 
@@ -358,7 +365,7 @@ export default function MapView({ visibleVoyageIds, layers, focusTarget }: MapVi
       }
 
       if (layers.weather) {
-        for (const w of MOCK_WEATHER_POINTS) {
+        for (const w of weatherPoints) {
           const icon = L.divIcon({
             html: buildWeatherCardHtml(w.windSpeed, w.windDir, w.waveHeight, w.name),
             className: '',
@@ -373,7 +380,7 @@ export default function MapView({ visibleVoyageIds, layers, focusTarget }: MapVi
     return () => {
       cancelled = true
     }
-  }, [mapReady, layers.dangerZones, layers.typhoon, layers.issues, layers.weather, mapLanguage])
+  }, [mapReady, layers.dangerZones, layers.typhoon, layers.issues, layers.weather, mapLanguage, typhoons, weatherPoints])
 
   // 지도 이동(9.9장) — direct면 setView(줌 델타가 큰 이동, KNOWN_PITFALLS.md 2.7), 아니면
   // flyTo. 의존성은 token뿐이다 — 좌표가 같아도 같은 지점을 다시 클릭하면 재실행되어야 한다.
@@ -403,6 +410,61 @@ export default function MapView({ visibleVoyageIds, layers, focusTarget }: MapVi
     if (!mapReady) return
     baseLayerRef.current?.setUrl(BASE_TILE_URLS[mapKind])
   }, [mapReady, mapKind])
+
+  // 강수 레이더(11.3장) — "기상" 필터에 편입되어 layers.radar로 켜지고 꺼진다.
+  // 프레임 경로는 한 번 조회하면 radarPathRef에 캐시해 토글할 때마다 재요청하지 않는다.
+  // 실패는 조용히 무시한다 — 레이더 없이도 화면은 그대로 동작해야 한다.
+  useEffect(() => {
+    if (!mapReady) return
+    const map = mapRef.current
+    if (!map) return
+
+    let cancelled = false
+
+    async function syncRadar() {
+      if (!layers.radar) {
+        if (radarLayerRef.current) {
+          map!.removeLayer(radarLayerRef.current)
+          radarLayerRef.current = null
+        }
+        return
+      }
+      if (radarLayerRef.current) return
+
+      try {
+        let path = radarPathRef.current
+        if (!path) {
+          const res = await fetch('https://api.rainviewer.com/public/weather-maps.json', { signal: AbortSignal.timeout(8000) })
+          if (!res.ok) throw new Error('bad_response')
+          const data = await res.json()
+          const pastFrames = data?.radar?.past
+          if (!Array.isArray(pastFrames) || pastFrames.length === 0) throw new Error('no_frames')
+          path = pastFrames[pastFrames.length - 1].path
+          radarPathRef.current = path
+        }
+        if (cancelled) return
+
+        const L = await import('leaflet')
+        if (cancelled || !mapRef.current) return
+
+        const layer = L.tileLayer(`https://tilecache.rainviewer.com${path}/256/{z}/{x}/{y}/6/1_1.png`, {
+          opacity: 0.45,
+          maxZoom: 10,
+          errorTileUrl: ERROR_TILE_URL,
+        })
+        layer.addTo(mapRef.current)
+        radarLayerRef.current = layer
+      } catch {
+        // 조용히 무시(11.3장)
+      }
+    }
+
+    syncRadar()
+
+    return () => {
+      cancelled = true
+    }
+  }, [mapReady, layers.radar])
 
   return (
     <>
