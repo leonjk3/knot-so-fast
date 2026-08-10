@@ -1,10 +1,11 @@
 'use client'
 
 import { useMemo, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import type { LucideIcon } from 'lucide-react'
 import { Ship, AlertTriangle, CheckCircle, TrendingDown, Leaf, Award, Trophy, CalendarRange, ChevronLeft, ChevronRight } from 'lucide-react'
 import type { Vessel, Voyage } from '@/shared/types'
-import { VOYAGE_STATUS_COLORS } from '@/shared/constants'
+import { VOYAGE_STATUS_COLORS, CARBON_VESSEL_ID_KEY, SCHEDULE_CALENDAR_DATE_KEY } from '@/shared/constants'
 import { formatNumber } from '@/shared/utils/format'
 import { cn } from '@/shared/utils/cn'
 import { MOCK_VESSELS } from '@/mocks/vessels'
@@ -13,7 +14,7 @@ import { MOCK_POSITIONS } from '@/mocks/positions'
 import { MOCK_CII_SCORE_BY_VOYAGE, MOCK_FLEET_ECO_RANKING, CARBON_BENCHMARK_MULTIPLIER } from '@/mocks/carbon'
 import { computeFleetGauges, getActiveVoyages } from './fleetGauge'
 import { ciiGradeFromScore } from './cii'
-import { startOfWeek, addDays, isSameDay, formatWeekPeriodLabel } from './date'
+import { startOfWeek, addDays, isSameDay, formatWeekPeriodLabel, toDateKey } from './date'
 
 // ── 5.1 운항 지표 4종 ────────────────────────────────────────
 function StatRow({ icon: Icon, label, value, colorClassName }: { icon: LucideIcon; label: string; value: string; colorClassName: string }) {
@@ -64,9 +65,9 @@ function CarbonHalf({
   borderLeft?: boolean
 }) {
   return (
-    <div className={cn('flex flex-col items-center justify-center gap-0.5 p-1', borderLeft && 'border-l border-slate-200 pl-2 dark:border-slate-700')}>
+    <div className={cn('flex w-full flex-col items-center justify-center gap-0.5 p-1', borderLeft && 'border-l border-slate-200 pl-2 dark:border-slate-700')}>
       <Leaf className={cn('h-3.5 w-3.5', iconColorClassName)} />
-      <span className="text-[11px] text-slate-500 dark:text-slate-400">{label}</span>
+      <span className="w-full truncate text-center text-[11px] text-slate-500 dark:text-slate-400">{label}</span>
       <span className={cn('text-base font-bold', valueColorClassName)}>{value}</span>
     </div>
   )
@@ -114,11 +115,19 @@ function CiiGradeCard({ score, grade, color }: { score: number; grade: string; c
 const MEDALS = ['🥇', '🥈', '🥉']
 
 function EcoRankingCard({ top3, vessels }: { top3: { vesselId: string; co2SavedPct: number }[]; vessels: Vessel[] }) {
+  const router = useRouter()
+
+  // DASHBOARD.md 10.3장 — sessionStorage 1회성 키에 vesselId를 심고 /carbon으로 이동한다.
+  function handleClick(vesselId: string) {
+    sessionStorage.setItem(CARBON_VESSEL_ID_KEY, vesselId)
+    router.push('/carbon')
+  }
+
   return (
-    <div className="col-span-1 rounded-lg border border-slate-200 bg-white p-2 shadow-sm dark:border-slate-700 dark:bg-slate-800">
-      <div className="mb-1 flex items-center gap-1 text-[10px] text-slate-500 dark:text-slate-400">
-        <Trophy className="h-3.5 w-3.5" />
-        <span>이번 항차 에코 랭킹</span>
+    <div className="col-span-1 overflow-hidden rounded-lg border border-slate-200 bg-white p-2 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+      <div className="mb-1 flex min-w-0 items-center gap-1 text-[10px] text-slate-500 dark:text-slate-400">
+        <Trophy className="h-3.5 w-3.5 shrink-0" />
+        <span className="min-w-0 truncate">이번 항차 에코 랭킹</span>
       </div>
       <div className="flex flex-col gap-0.5">
         {top3.map((entry, i) => {
@@ -128,11 +137,13 @@ function EcoRankingCard({ top3, vessels }: { top3: { vesselId: string; co2SavedP
               key={entry.vesselId}
               type="button"
               title="탄소 배출 대시보드에서 조회"
-              // 딥링크(10.3장)는 L4에서 연결 — 지금은 표시만
+              onClick={() => handleClick(entry.vesselId)}
               className="flex items-center gap-1 rounded px-1 py-0.5 text-[10px] hover:bg-slate-100 dark:hover:bg-slate-700"
             >
-              <span>{MEDALS[i]}</span>
-              <span className="min-w-0 flex-1 truncate text-left text-slate-700 dark:text-slate-200">{vessel?.name ?? entry.vesselId}</span>
+              <span className="shrink-0">{MEDALS[i]}</span>
+              {/* 좁은 폭에서도 최소 3글자는 보이도록 바닥 폭을 둔다 — 셋 다 "KSF "로 시작해
+                  완전히 사라지면 어느 배인지 구분이 안 된다. */}
+              <span className="min-w-[3ch] flex-1 truncate text-left text-slate-700 dark:text-slate-200">{vessel?.name ?? entry.vesselId}</span>
               <span className="shrink-0 font-semibold text-green-600">-{entry.co2SavedPct}%</span>
             </button>
           )
@@ -163,9 +174,16 @@ function buildDayEvents(day: Date, voyages: Voyage[], vessels: Vessel[]): DayEve
 }
 
 function WeeklyScheduleCard({ voyages, vessels }: { voyages: Voyage[]; vessels: Vessel[] }) {
+  const router = useRouter()
   const [weekStart, setWeekStart] = useState(() => startOfWeek(new Date()))
   const today = useMemo(() => new Date(), [])
   const days = useMemo(() => Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)), [weekStart])
+
+  // DASHBOARD.md 10.2장 — sessionStorage 1회성 키에 날짜(YYYY-MM-DD)를 심고 /schedule로 이동한다.
+  function handleDayClick(day: Date) {
+    sessionStorage.setItem(SCHEDULE_CALENDAR_DATE_KEY, toDateKey(day))
+    router.push('/schedule')
+  }
 
   return (
     <div className="col-span-2 rounded-lg border border-slate-200 bg-white p-2 shadow-sm dark:border-slate-700 dark:bg-slate-800">
@@ -201,7 +219,7 @@ function WeeklyScheduleCard({ voyages, vessels }: { voyages: Voyage[]; vessels: 
               key={day.toISOString()}
               type="button"
               title={events.length ? events.map((e) => `${e.type} · ${e.vesselName}`).join('\n') : undefined}
-              // 딥링크(10.2장)는 L4에서 연결 — 지금은 표시만
+              onClick={() => handleDayClick(day)}
               className="flex flex-col items-center gap-0.5 rounded p-0.5 hover:bg-slate-50 dark:hover:bg-slate-700"
             >
               <span className="text-[9px] text-slate-400">{WEEKDAY_LABELS[i]}</span>

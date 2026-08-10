@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import dynamic from 'next/dynamic'
 import { PageHeader } from '@/shared/components/PageHeader'
 import { useLanguage } from '@/features/i18n/LanguageContext'
+import { AutoRefreshControl } from '@/features/dashboard/AutoRefreshControl'
 import { SummaryCards } from '@/features/dashboard/SummaryCards'
 import { FleetGaugeCard } from '@/features/dashboard/FleetGaugeCard'
 import { FilterBar } from '@/features/dashboard/FilterBar'
@@ -82,7 +83,9 @@ export default function DashboardPage() {
 
   return (
     <div className="flex min-h-full flex-col">
-      <PageHeader title={t.dashboard.title} subtitle={t.dashboard.subtitle} />
+      <PageHeader title={t.dashboard.title} subtitle={t.dashboard.subtitle}>
+        <AutoRefreshControl />
+      </PageHeader>
       <SummaryCards />
 
       {/* 함대 게이지 카드 — 활성 항차 1건 이상일 때만 렌더링 (4장) */}

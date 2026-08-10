@@ -1,12 +1,15 @@
 'use client'
 
-import type { Dispatch, KeyboardEvent, SetStateAction } from 'react'
-import { Fuel, ChevronDown, Leaf, TrendingDown, LocateFixed, Gauge, BrainCircuit } from 'lucide-react'
+import { useState, type Dispatch, type KeyboardEvent, type SetStateAction } from 'react'
+import { useRouter } from 'next/navigation'
+import { Fuel, ChevronDown, Leaf, TrendingDown, LocateFixed, Gauge, BrainCircuit, Loader2 } from 'lucide-react'
 import { VoyageBadge } from '@/shared/components/StatusBadge'
 import { HorizontalGauge } from '@/shared/components/HorizontalGauge'
 import { cn } from '@/shared/utils/cn'
 import { formatNumber, formatShortDateTime } from '@/shared/utils/format'
 import { getPortCode } from '@/mocks/ports'
+import { AI_REPORT_VESSEL_ID_KEY } from '@/shared/constants'
+import { sendSpeedRecommendation, buildSpeedRecommendationAlert } from './speedRecommendation'
 import type { FleetGaugeRow } from './fleetGauge'
 import type { MapFocusTarget } from './mapFocus'
 
@@ -33,23 +36,23 @@ function FleetGaugeHeader({
       <button
         type="button"
         onClick={onToggleOpen}
-        className="flex items-center gap-1.5 text-xs font-semibold text-slate-600 dark:text-slate-300"
+        className="flex min-w-0 items-center gap-1.5 text-xs font-semibold text-slate-600 dark:text-slate-300"
       >
-        <Fuel className="h-3.5 w-3.5" />
-        <span>운항 중 선박 연료·탄소 현황</span>
-        <ChevronDown className={cn('h-3.5 w-3.5 transition-transform', !open && '-rotate-90')} />
+        <Fuel className="h-3.5 w-3.5 shrink-0" />
+        <span className="min-w-0 truncate">운항 중 선박 연료·탄소 현황</span>
+        <ChevronDown className={cn('h-3.5 w-3.5 shrink-0 transition-transform', !open && '-rotate-90')} />
       </button>
 
       {open && (
-        <div className="ml-auto flex items-center gap-2 text-xs">
-          <button type="button" onClick={onSelectAll} className="font-medium text-[#6366f1] hover:underline">
+        <div className="ml-auto flex shrink-0 items-center gap-2 text-xs">
+          <button type="button" onClick={onSelectAll} className="font-medium whitespace-nowrap text-[#6366f1] hover:underline">
             전체 선택
           </button>
           <span className="text-slate-300 dark:text-slate-600">|</span>
-          <button type="button" onClick={onDeselectAll} className="font-medium text-slate-500 hover:underline dark:text-slate-400">
+          <button type="button" onClick={onDeselectAll} className="font-medium whitespace-nowrap text-slate-500 hover:underline dark:text-slate-400">
             전체 해제
           </button>
-          <span className="text-slate-400">
+          <span className="text-slate-400 whitespace-nowrap">
             {selectedCount}/{total}개 지도 표시 중
           </span>
         </div>
@@ -62,17 +65,29 @@ function FleetGaugeHeader({
 function VesselGaugeCard({
   row,
   selected,
+  sending,
   onToggle,
   onFocusMap,
+  onSend,
 }: {
   row: FleetGaugeRow
   selected: boolean
+  sending: boolean
   onToggle: () => void
   onFocusMap: FocusFn
+  onSend: () => void
 }) {
+  const router = useRouter()
   const { vessel, voyage, position, fuelTonPerDay, fuelCapacityPercent, co2TonPerDay, co2FleetPercent, fuelSavingPercent } = row
   const depCode = getPortCode(voyage.departurePort) ?? voyage.departurePort.split(' ')[0]
   const arrCode = getPortCode(voyage.arrivalPort) ?? voyage.arrivalPort.split(' ')[0]
+
+  // DASHBOARD.md 10.1장 — sessionStorage 1회성 키에 vesselId를 심고 /ai-report로 이동한다.
+  function handleAiClick(e: React.MouseEvent) {
+    e.stopPropagation()
+    sessionStorage.setItem(AI_REPORT_VESSEL_ID_KEY, vessel.id)
+    router.push('/ai-report')
+  }
 
   function handleKeyDown(e: KeyboardEvent<HTMLDivElement>) {
     if (e.key === 'Enter' || e.key === ' ') {
@@ -112,18 +127,20 @@ function VesselGaugeCard({
         <button
           type="button"
           title="제안속도 전송"
-          // 전송 동작(6.4장)은 L4에서 연결 — 지금은 표시만
-          onClick={(e) => e.stopPropagation()}
-          className="flex shrink-0 items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] font-medium text-[#6366f1] hover:bg-[#6366f1]/10"
+          disabled={sending}
+          onClick={(e) => {
+            e.stopPropagation()
+            onSend()
+          }}
+          className="flex shrink-0 items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] font-medium text-[#6366f1] hover:bg-[#6366f1]/10 disabled:opacity-50"
         >
-          <Gauge className="h-3 w-3" />
+          {sending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Gauge className="h-3 w-3" />}
           Knot
         </button>
         <button
           type="button"
           title="AI 운항 리포트에서 조회"
-          // AI 리포트 딥링크(10.1장)는 L4에서 연결 — 지금은 표시만
-          onClick={(e) => e.stopPropagation()}
+          onClick={handleAiClick}
           className="flex shrink-0 items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] font-medium text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-700"
         >
           <BrainCircuit className="h-3 w-3" />
@@ -180,6 +197,9 @@ export function FleetGaugeCard({
 }) {
   const selectedCount = rows.filter((r) => selectedVoyageIds.has(r.voyage.id)).length
 
+  // DASHBOARD.md 6.4장 — 전송 중인 선박 id를 Set으로 관리해 버튼별로 개별 로딩을 표시한다.
+  const [sendingVesselIds, setSendingVesselIds] = useState<Set<string>>(new Set())
+
   function toggleVoyage(voyageId: string) {
     setSelectedVoyageIds((prev) => {
       const next = new Set(prev)
@@ -195,6 +215,32 @@ export function FleetGaugeCard({
 
   function deselectAll() {
     setSelectedVoyageIds(new Set())
+  }
+
+  async function handleSend(row: FleetGaugeRow) {
+    const vesselId = row.vessel.id
+    setSendingVesselIds((prev) => new Set(prev).add(vesselId))
+
+    const request = {
+      vesselId,
+      vesselName: row.vessel.name,
+      imo: row.vessel.imo,
+      voyageId: row.voyage.id,
+      departurePort: row.voyage.departurePort,
+      arrivalPort: row.voyage.arrivalPort,
+      currentSpeedKnots: row.position.speedKnots,
+      recommendedSpeedKnots: row.voyage.recommendedSpeedKnots,
+      plannedSpeedKnots: row.voyage.plannedSpeedKnots,
+      eta: row.voyage.eta,
+    }
+    const result = await sendSpeedRecommendation(request)
+
+    setSendingVesselIds((prev) => {
+      const next = new Set(prev)
+      next.delete(vesselId)
+      return next
+    })
+    window.alert(buildSpeedRecommendationAlert(result, request))
   }
 
   return (
@@ -215,8 +261,10 @@ export function FleetGaugeCard({
               key={row.voyage.id}
               row={row}
               selected={selectedVoyageIds.has(row.voyage.id)}
+              sending={sendingVesselIds.has(row.vessel.id)}
               onToggle={() => toggleVoyage(row.voyage.id)}
               onFocusMap={onFocusMap}
+              onSend={() => handleSend(row)}
             />
           ))}
         </div>

@@ -4,7 +4,7 @@ import { ChevronDown, Satellite } from 'lucide-react'
 import { cn } from '@/shared/utils/cn'
 import { MAP_LANGUAGE_OPTIONS, type MapLanguage } from './mapLabels'
 
-const PILL_BASE = 'rounded-full px-3 py-1 text-xs font-medium transition-colors'
+const PILL_BASE = 'rounded-full px-3 py-1 text-xs font-medium whitespace-nowrap transition-colors'
 const PILL_ACTIVE = 'bg-[#6366f1] text-white'
 const PILL_INACTIVE = 'text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-700'
 // 지도 위 오버레이는 카드와 달리 반투명(bg-white/95 backdrop-blur)을 쓴다 (13장).

@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import type { Map as LeafletMap, LayerGroup, Marker, TileLayer } from 'leaflet'
+import type { Map as LeafletMap, LayerGroup, Marker, TileLayer, PopupEvent } from 'leaflet'
 import type { AisPosition } from '@/shared/types'
 import { OWN_COMPANY_NAME, VOYAGE_STATUS_COLORS } from '@/shared/constants'
 import { formatDateTime } from '@/shared/utils/format'
@@ -9,6 +9,7 @@ import { MOCK_DANGER_ZONES, MOCK_REGIONAL_ISSUES } from '@/mocks/map-overlays'
 import { findPort } from '@/mocks/ports'
 import { useMarineWeather } from './useMarineWeather'
 import { useTyphoons } from './useTyphoons'
+import { sendSpeedRecommendation, buildSpeedRecommendationAlert } from './speedRecommendation'
 import { ALL_VOYAGES, ALL_VESSELS, ALL_POSITIONS } from './fleetData'
 import type { LayerVisibility } from './filters'
 import type { MapFocusTarget } from './mapFocus'
@@ -465,6 +466,65 @@ export default function MapView({ visibleVoyageIds, layers, focusTarget }: MapVi
       cancelled = true
     }
   }, [mapReady, layers.radar])
+
+  // 팝업 내 전송 버튼 이벤트 위임(9.11장) — 팝업은 React 트리 밖의 raw HTML이라 onClick을
+  // 붙일 수 없다. popupopen에서 data 속성으로 대상을 찾아 핸들러를 연결한다. mapLanguage가
+  // 바뀌면 팝업 HTML도 다시 그려지므로(labels.sendSpeedSending 등) 핸들러도 다시 건다.
+  useEffect(() => {
+    if (!mapReady) return
+    const map = mapRef.current
+    if (!map) return
+
+    const labels = getMapLabels(mapLanguage)
+
+    function handlePopupOpen(e: PopupEvent) {
+      const el = e.popup.getElement()
+      const btn = el?.querySelector<HTMLButtonElement>('[data-send-speed-vessel-id]')
+      if (!btn) return
+
+      const vesselId = btn.dataset.sendSpeedVesselId
+      const voyageId = btn.dataset.sendSpeedVoyageId
+      if (!vesselId || !voyageId) return
+
+      const originalHtml = btn.innerHTML
+
+      btn.onclick = async () => {
+        const voyage = ALL_VOYAGES.find((v) => v.id === voyageId)
+        const vessel = ALL_VESSELS.find((v) => v.id === vesselId)
+        const position = ALL_POSITIONS.find((p) => p.vesselId === vesselId)
+        if (!voyage || !vessel || !position) return
+
+        btn.disabled = true
+        btn.style.opacity = '0.7'
+        btn.textContent = labels.sendSpeedSending
+
+        const request = {
+          vesselId,
+          vesselName: vessel.name,
+          imo: vessel.imo,
+          voyageId,
+          departurePort: voyage.departurePort,
+          arrivalPort: voyage.arrivalPort,
+          currentSpeedKnots: position.speedKnots,
+          recommendedSpeedKnots: voyage.recommendedSpeedKnots,
+          plannedSpeedKnots: voyage.plannedSpeedKnots,
+          eta: voyage.eta,
+        }
+        const result = await sendSpeedRecommendation(request)
+
+        btn.disabled = false
+        btn.style.opacity = ''
+        btn.innerHTML = originalHtml
+
+        window.alert(buildSpeedRecommendationAlert(result, request))
+      }
+    }
+
+    map.on('popupopen', handlePopupOpen)
+    return () => {
+      map.off('popupopen', handlePopupOpen)
+    }
+  }, [mapReady, mapLanguage])
 
   return (
     <>
