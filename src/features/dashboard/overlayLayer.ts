@@ -1,4 +1,5 @@
 import type { TyphoonWarning, RegionalIssue } from '@/mocks/map-overlays'
+import type { MapLabels } from './mapLabels'
 
 const TYPHOON_INTENSITY_COLORS: Record<TyphoonWarning['intensity'], string> = {
   TD: '#94a3b8',
@@ -27,16 +28,16 @@ function popupRow(label: string, value: string): string {
   return `<tr><td style="padding:2px 8px 2px 0;font-size:10px;color:#64748b;white-space:nowrap;">${label}</td><td style="padding:2px 0;font-size:11px;color:#0f172a;">${value}</td></tr>`
 }
 
-export function buildTyphoonPopupHtml(t: TyphoonWarning): string {
+export function buildTyphoonPopupHtml(t: TyphoonWarning, labels: MapLabels): string {
   const color = typhoonColor(t.intensity)
   return [
     '<div style="min-width:180px;">',
     `<div style="font-size:13px;font-weight:700;color:${color};">🌀 ${t.name}</div>`,
     '<table style="margin-top:6px;border-collapse:collapse;">',
-    popupRow('강도', t.intensity),
-    popupRow('최대 풍속', `${t.windSpeedKnots} kts`),
-    popupRow('반경', `${t.radiusKm} km`),
-    popupRow('이동 방향·속도', `${t.movingDir} · ${t.movingSpeedKnots} kts`),
+    popupRow(labels.intensity, labels.typhoonIntensity[t.intensity]),
+    popupRow(labels.maxWind, `${t.windSpeedKnots} kts`),
+    popupRow(labels.radius, `${t.radiusKm} km`),
+    popupRow(labels.movingDir, `${t.movingDir} · ${t.movingSpeedKnots} kts`),
     '</table>',
     '</div>',
   ].join('')
@@ -89,12 +90,12 @@ const SEVERITY_EMOJI: Record<RegionalIssue['severity'], string> = {
   low: '🟢',
 }
 
-export function buildIssuePopupHtml(issue: RegionalIssue): string {
+export function buildIssuePopupHtml(issue: RegionalIssue, labels: MapLabels): string {
   return [
     '<div style="min-width:200px;">',
     `<div style="font-size:13px;font-weight:700;color:#0f172a;">${SEVERITY_EMOJI[issue.severity]} ${issue.title}</div>`,
     `<div style="margin-top:4px;font-size:11px;color:#334155;">${issue.description}</div>`,
-    `<div style="margin-top:4px;font-size:10px;color:#64748b;">출처: ${issue.source}</div>`,
+    `<div style="margin-top:4px;font-size:10px;color:#64748b;">${labels.source}: ${issue.source}</div>`,
     '</div>',
   ].join('')
 }

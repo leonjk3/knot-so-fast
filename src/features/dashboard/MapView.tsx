@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import type { Map as LeafletMap, LayerGroup, Marker } from 'leaflet'
+import type { Map as LeafletMap, LayerGroup, Marker, TileLayer } from 'leaflet'
 import type { AisPosition } from '@/shared/types'
 import { OWN_COMPANY_NAME, VOYAGE_STATUS_COLORS } from '@/shared/constants'
 import { formatDateTime } from '@/shared/utils/format'
@@ -14,6 +14,14 @@ import { WORLD_BOUNDS, wrapLng, wrapRouteSegments } from './mapSeam'
 import { getDisplayRoute, computeActualRoute, buildVesselMarkerIcon, buildVesselPopupHtml } from './voyageLayer'
 import { aggregateByPort, buildPortMarkerHtml, buildPortPopupHtml } from './portLayer'
 import { buildTyphoonMarkerHtml, buildTyphoonPopupHtml, typhoonColor, buildIssueMarkerHtml, buildIssuePopupHtml, buildWeatherCardHtml } from './overlayLayer'
+import { getMapLabels, type MapLanguage } from './mapLabels'
+import { MapLanguageSelector, MapTypeToggle, MapLegend, type MapKind } from './MapOverlayUI'
+
+// ② 지도 유형 — 레이어를 추가·제거하지 않고 기본 타일의 setUrl()만 교체한다(9.10장).
+const BASE_TILE_URLS: Record<MapKind, string> = {
+  standard: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png',
+  satellite: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+}
 
 // 오류를 200 응답 이미지로 반환하는 타일 서버(OpenSeaMap 등) 대비 — 1×1 투명 PNG
 const ERROR_TILE_URL =
@@ -62,7 +70,11 @@ export default function MapView({ visibleVoyageIds, layers, focusTarget }: MapVi
   const resizeHandlerRef = useRef<(() => void) | null>(null)
   const portMarkersRef = useRef<Map<string, Marker>>(new Map())
   const issueMarkersRef = useRef<Map<string, Marker>>(new Map())
+  const baseLayerRef = useRef<TileLayer | null>(null)
   const [mapReady, setMapReady] = useState(false)
+  const [mapLanguage, setMapLanguage] = useState<MapLanguage>('ko')
+  const [mapKind, setMapKind] = useState<MapKind>('standard')
+  const [legendOpen, setLegendOpen] = useState(false)
 
   useEffect(() => {
     let active = true
@@ -92,7 +104,7 @@ export default function MapView({ visibleVoyageIds, layers, focusTarget }: MapVi
 
       // 타일 레이어에 bounds 옵션을 주면 안 된다 — 랩핑된 타일 좌표가 표준 -180~180으로
       // 재정규화되어 태평양 부근이 회색으로 빠진다.
-      L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png', {
+      baseLayerRef.current = L.tileLayer(BASE_TILE_URLS.standard, {
         maxZoom: 18,
         maxNativeZoom: 17,
         errorTileUrl: ERROR_TILE_URL,
@@ -156,6 +168,7 @@ export default function MapView({ visibleVoyageIds, layers, focusTarget }: MapVi
       voyageLayerRef.current = null
       portLayerRef.current = null
       overlayLayerRef.current = null
+      baseLayerRef.current = null
       portMarkers.clear()
       issueMarkers.clear()
     }
@@ -174,6 +187,7 @@ export default function MapView({ visibleVoyageIds, layers, focusTarget }: MapVi
     if (visibleVoyageIds.size > 0) {
       import('leaflet').then((L) => {
         if (cancelled) return
+        const labels = getMapLabels(mapLanguage)
 
         for (const voyageId of visibleVoyageIds) {
           const voyage = ALL_VOYAGES.find((v) => v.id === voyageId)
@@ -223,6 +237,7 @@ export default function MapView({ visibleVoyageIds, layers, focusTarget }: MapVi
               statusColor,
               vesselId: vessel.id,
               voyageId: voyage.id,
+              labels,
             }),
             { minWidth: 200 },
           )
@@ -233,7 +248,7 @@ export default function MapView({ visibleVoyageIds, layers, focusTarget }: MapVi
     return () => {
       cancelled = true
     }
-  }, [mapReady, visibleVoyageIds])
+  }, [mapReady, visibleVoyageIds, mapLanguage])
 
   // 항구 레이어(9.6장) — 선박 필터·선택과 무관하게 항상 전체 항차 기준으로 집계한다.
   useEffect(() => {
@@ -248,6 +263,7 @@ export default function MapView({ visibleVoyageIds, layers, focusTarget }: MapVi
     if (layers.ports) {
       import('leaflet').then((L) => {
         if (cancelled) return
+        const labels = getMapLabels(mapLanguage)
 
         const aggregates = aggregateByPort(ALL_VOYAGES, ALL_VESSELS)
         for (const [code, agg] of aggregates) {
@@ -262,7 +278,7 @@ export default function MapView({ visibleVoyageIds, layers, focusTarget }: MapVi
             iconAnchor: [15, 15],
           })
           const marker = L.marker([port.lat, wrapLng(port.lng)], { icon }).addTo(portLayer)
-          marker.bindPopup(buildPortPopupHtml(code, agg), { minWidth: 220, maxWidth: 260 })
+          marker.bindPopup(buildPortPopupHtml(code, agg, labels), { minWidth: 220, maxWidth: 260 })
           portMarkersRef.current.set(code, marker)
         }
       })
@@ -271,7 +287,7 @@ export default function MapView({ visibleVoyageIds, layers, focusTarget }: MapVi
     return () => {
       cancelled = true
     }
-  }, [mapReady, layers.ports])
+  }, [mapReady, layers.ports, mapLanguage])
 
   // 오버레이 레이어(9.8장) — 위험구역·태풍·지역 이슈·기상 카드. issues 플래그 하나로
   // 위험구역·태풍·이슈가 함께 켜지고 꺼진다(7.3장 — 태풍·위험구역은 "이슈"에 편입).
@@ -286,6 +302,7 @@ export default function MapView({ visibleVoyageIds, layers, focusTarget }: MapVi
 
     import('leaflet').then((L) => {
       if (cancelled) return
+      const labels = getMapLabels(mapLanguage)
 
       if (layers.dangerZones) {
         for (const zone of MOCK_DANGER_ZONES) {
@@ -322,7 +339,7 @@ export default function MapView({ visibleVoyageIds, layers, focusTarget }: MapVi
             iconSize: [36, 36],
             iconAnchor: [18, 18],
           })
-          L.marker(latLng, { icon }).addTo(overlayLayer).bindPopup(buildTyphoonPopupHtml(t), { minWidth: 180 })
+          L.marker(latLng, { icon }).addTo(overlayLayer).bindPopup(buildTyphoonPopupHtml(t, labels), { minWidth: 180 })
         }
       }
 
@@ -335,7 +352,7 @@ export default function MapView({ visibleVoyageIds, layers, focusTarget }: MapVi
             iconAnchor: [18, 18],
           })
           const marker = L.marker([issue.lat, wrapLng(issue.lng)], { icon }).addTo(overlayLayer)
-          marker.bindPopup(buildIssuePopupHtml(issue), { minWidth: 200 })
+          marker.bindPopup(buildIssuePopupHtml(issue, labels), { minWidth: 200 })
           issueMarkersRef.current.set(issue.id, marker)
         }
       }
@@ -356,7 +373,7 @@ export default function MapView({ visibleVoyageIds, layers, focusTarget }: MapVi
     return () => {
       cancelled = true
     }
-  }, [mapReady, layers.dangerZones, layers.typhoon, layers.issues, layers.weather])
+  }, [mapReady, layers.dangerZones, layers.typhoon, layers.issues, layers.weather, mapLanguage])
 
   // 지도 이동(9.9장) — direct면 setView(줌 델타가 큰 이동, KNOWN_PITFALLS.md 2.7), 아니면
   // flyTo. 의존성은 token뿐이다 — 좌표가 같아도 같은 지점을 다시 클릭하면 재실행되어야 한다.
@@ -381,13 +398,24 @@ export default function MapView({ visibleVoyageIds, layers, focusTarget }: MapVi
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mapReady, focusTarget?.token])
 
+  // 지도 유형(9.10장 ②) — 레이어를 추가·제거하지 않고 기본 타일의 setUrl()만 교체한다.
+  useEffect(() => {
+    if (!mapReady) return
+    baseLayerRef.current?.setUrl(BASE_TILE_URLS[mapKind])
+  }, [mapReady, mapKind])
+
   return (
     <>
       <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
       {/* h-full(퍼센트)은 부모(min-h-[500px] flex-1)의 height 속성 자체가 auto라 해석되지
           않는다 — flex-grow로 실제 픽셀 높이가 잡혀도 퍼센트 기준으로는 auto다. 절대 위치로
           부모의 실제 박스 크기를 직접 채운다. */}
-      <div ref={containerRef} className="absolute inset-0" />
+      <div className="absolute inset-0">
+        <div ref={containerRef} className="absolute inset-0" />
+        <MapLanguageSelector value={mapLanguage} onChange={setMapLanguage} />
+        <MapTypeToggle value={mapKind} onChange={setMapKind} />
+        <MapLegend open={legendOpen} onToggle={() => setLegendOpen((v) => !v)} />
+      </div>
     </>
   )
 }

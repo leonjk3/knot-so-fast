@@ -2,6 +2,7 @@ import type { Voyage, Vessel } from '@/shared/types'
 import { OWN_COMPANY_NAME } from '@/shared/constants'
 import { formatDate, formatDateTime } from '@/shared/utils/format'
 import { getPortCode, findPort, formatPortLabel } from '@/mocks/ports'
+import type { MapLabels } from './mapLabels'
 
 export interface PortVoyageEntry {
   voyage: Voyage
@@ -58,44 +59,52 @@ export function buildPortMarkerHtml(totalCount: number): string {
   return `<div style="position:relative;width:30px;height:30px;"><div style="width:30px;height:30px;border-radius:8px;background:#0ea5e9;border:2.5px solid #ffffff;display:flex;align-items:center;justify-content:center;font-size:15px;">⚓</div>${badge}</div>`
 }
 
-function shipRow(entry: PortVoyageEntry, detail: string): string {
+function shipRow(entry: PortVoyageEntry, detail: string, labels: MapLabels): string {
   const isOwn = entry.vessel.company === OWN_COMPANY_NAME
   const companyLabel = isOwn
-    ? `<span style="color:#6366f1;font-weight:600;">자사 선박</span>`
+    ? `<span style="color:#6366f1;font-weight:600;">${labels.ownFleet}</span>`
     : `<span style="color:#64748b;">${entry.vessel.company}</span>`
   return `<div style="padding:3px 0;"><div style="display:flex;justify-content:space-between;align-items:center;"><span style="font-size:12px;font-weight:600;color:#0f172a;">${entry.vessel.name}</span>${companyLabel}</div><div style="font-size:10px;color:#64748b;">${detail}</div></div>`
 }
 
-function berthedDetail(entry: PortVoyageEntry): string {
-  return entry.voyage.status === 'preparing' ? `출항 예정: ${formatDateTime(entry.voyage.etd)}` : `ETA: ${formatDateTime(entry.voyage.eta)}`
+function berthedDetail(entry: PortVoyageEntry, labels: MapLabels): string {
+  return entry.voyage.status === 'preparing'
+    ? `${labels.portEtd}: ${formatDateTime(entry.voyage.etd)}`
+    : `${labels.eta}: ${formatDateTime(entry.voyage.eta)}`
 }
 
-function departingDetail(entry: PortVoyageEntry): string {
-  return `목적지: ${entry.voyage.arrivalPort.split(' ')[0]} · ETA ${formatDate(entry.voyage.eta)}`
+function departingDetail(entry: PortVoyageEntry, labels: MapLabels): string {
+  return `${labels.portBoundFor}: ${entry.voyage.arrivalPort.split(' ')[0]} · ${labels.eta} ${formatDate(entry.voyage.eta)}`
 }
 
-function arrivingDetail(entry: PortVoyageEntry): string {
-  return `출발: ${entry.voyage.departurePort.split(' ')[0]} · ETA ${formatDateTime(entry.voyage.eta)}`
+function arrivingDetail(entry: PortVoyageEntry, labels: MapLabels): string {
+  return `${labels.portFrom}: ${entry.voyage.departurePort.split(' ')[0]} · ${labels.eta} ${formatDateTime(entry.voyage.eta)}`
 }
 
-function portSection(title: string, color: string, entries: PortVoyageEntry[], detailFn: (e: PortVoyageEntry) => string): string {
+function portSection(
+  title: string,
+  color: string,
+  entries: PortVoyageEntry[],
+  detailFn: (e: PortVoyageEntry, labels: MapLabels) => string,
+  labels: MapLabels,
+): string {
   if (entries.length === 0) return ''
-  return `<div style="margin-top:6px;"><div style="font-size:11px;font-weight:700;color:${color};">${title} (${entries.length})</div>${entries.map((e) => shipRow(e, detailFn(e))).join('')}</div>`
+  return `<div style="margin-top:6px;"><div style="font-size:11px;font-weight:700;color:${color};">${title} (${entries.length})</div>${entries.map((e) => shipRow(e, detailFn(e, labels), labels)).join('')}</div>`
 }
 
 // 팝업(폭 220~260px, 최대 높이 240px 스크롤)
-export function buildPortPopupHtml(code: string, agg: PortAggregate | undefined): string {
+export function buildPortPopupHtml(code: string, agg: PortAggregate | undefined, labels: MapLabels): string {
   const port = findPort(code)
   const title = port ? formatPortLabel(port) : code
   const total = agg ? agg.berthed.length + agg.departing.length + agg.arriving.length : 0
 
   const body =
     total === 0
-      ? `<div style="margin-top:6px;font-size:11px;color:#94a3b8;">이 항구에 등록된 선박이 없습니다.</div>`
+      ? `<div style="margin-top:6px;font-size:11px;color:#94a3b8;">${labels.portNoVessels}</div>`
       : [
-          portSection('정박', '#16a34a', agg?.berthed ?? [], berthedDetail),
-          portSection('출항', '#f59e0b', agg?.departing ?? [], departingDetail),
-          portSection('입항 예정', '#6366f1', agg?.arriving ?? [], arrivingDetail),
+          portSection(labels.portBerthed, '#16a34a', agg?.berthed ?? [], berthedDetail, labels),
+          portSection(labels.portDeparting, '#f59e0b', agg?.departing ?? [], departingDetail, labels),
+          portSection(labels.portArriving, '#6366f1', agg?.arriving ?? [], arrivingDetail, labels),
         ].join('')
 
   return [

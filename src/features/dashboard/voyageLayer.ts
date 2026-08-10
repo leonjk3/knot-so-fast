@@ -1,23 +1,10 @@
 import type { Voyage, AisPosition, VoyageStatus } from '@/shared/types'
 import ROUTES_JSON from '@/mocks/routes.json'
+import type { MapLabels } from './mapLabels'
 
 type LatLng = { lat: number; lng: number }
 type RouteEntry = { points: LatLng[] } | null
 const ROUTES = ROUTES_JSON as Record<string, RouteEntry>
-
-// DASHBOARD.md 5.5장/13장과 동일한 상태 라벨. 지도 팝업 전용 다국어 사전(MAP_LABELS,
-// 12장)은 L3(9.10 언어 선택기)에서 만들 것이므로 지금은 한국어로 고정한다.
-const STATUS_LABELS: Record<VoyageStatus, string> = {
-  preparing: '준비 중',
-  underway: '운항 중',
-  delayed: '지연',
-  completed: '완료',
-  cancelled: '취소',
-}
-
-export function statusLabel(status: VoyageStatus): string {
-  return STATUS_LABELS[status]
-}
 
 // 사전 계산 항로(routes.json, 실해상 경로)가 있으면 그것, 없으면 voyage.plannedRoute
 export function getDisplayRoute(voyage: Voyage): LatLng[] {
@@ -75,6 +62,7 @@ export interface PopupHtmlOptions {
   statusColor: string
   vesselId: string
   voyageId: string
+  labels: MapLabels
 }
 
 function popupRow(label: string, valueHtml: string): string {
@@ -84,14 +72,15 @@ function popupRow(label: string, valueHtml: string): string {
 // 선박 마커 팝업. 자사 선박이면 맨 아래에 "제안속도 전송" 버튼 HTML을 넣어둔다 — 실제 전송
 // 동작(6.4장)과 팝업 이벤트 위임(9.11장)은 L4에서 붙이므로 여기서는 data 속성만 심어둔다.
 export function buildVesselPopupHtml(opts: PopupHtmlOptions): string {
+  const { labels } = opts
   const companyLine = opts.isOwn
-    ? `<div style="margin-top:2px;font-size:11px;font-weight:600;color:#6366f1;">자사 선박</div>`
+    ? `<div style="margin-top:2px;font-size:11px;font-weight:600;color:#6366f1;">${labels.ownFleet}</div>`
     : `<div style="margin-top:2px;font-size:11px;color:#64748b;">${opts.companyName}</div>`
 
-  const statusBadge = `<span style="display:inline-block;padding:1px 8px;border-radius:9999px;font-size:10px;font-weight:600;color:#ffffff;background:${opts.statusColor};">${statusLabel(opts.status)}</span>`
+  const statusBadge = `<span style="display:inline-block;padding:1px 8px;border-radius:9999px;font-size:10px;font-weight:600;color:#ffffff;background:${opts.statusColor};">${labels.statusLabel[opts.status]}</span>`
 
   const sendButton = opts.isOwn
-    ? `<button type="button" data-send-speed-vessel-id="${opts.vesselId}" data-send-speed-voyage-id="${opts.voyageId}" style="width:100%;margin-top:8px;padding:6px 0;background:#6366f1;color:#ffffff;border:none;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;">제안속도 전송</button>`
+    ? `<button type="button" data-send-speed-vessel-id="${opts.vesselId}" data-send-speed-voyage-id="${opts.voyageId}" style="width:100%;margin-top:8px;padding:6px 0;background:#6366f1;color:#ffffff;border:none;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;">${labels.sendSpeedBtn}</button>`
     : ''
 
   return [
@@ -99,10 +88,10 @@ export function buildVesselPopupHtml(opts: PopupHtmlOptions): string {
     `<div style="font-size:14px;font-weight:600;color:#0f172a;">${opts.vesselName}</div>`,
     companyLine,
     '<table style="margin-top:6px;border-collapse:collapse;">',
-    popupRow('항차', `${opts.departurePort} → ${opts.arrivalPort}`),
-    popupRow('현재 속도', `${opts.speedKnots} kts`),
-    popupRow('ETA', opts.etaLabel),
-    popupRow('상태', statusBadge),
+    popupRow(labels.voyage, `${opts.departurePort} → ${opts.arrivalPort}`),
+    popupRow(labels.currentSpeed, `${opts.speedKnots} kts`),
+    popupRow(labels.eta, opts.etaLabel),
+    popupRow(labels.status, statusBadge),
     '</table>',
     sendButton,
     '</div>',
